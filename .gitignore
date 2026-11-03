@@ -34,3 +34,4 @@ dataset/index/*
 !dataset/raw/.gitkeep
 !dataset/processed/.gitkeep
 !dataset/index/.gitkeep
+dataset/data/*
