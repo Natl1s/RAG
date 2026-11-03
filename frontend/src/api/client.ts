@@ -5,7 +5,7 @@ import { askMock } from '../lib/mockEngine'
 import { askApi } from './apiSse'
 import type { AskEvent, EngineMode, EscalationResult, SourceChunk } from '../types'
 
-let mode: EngineMode = import.meta.env.VITE_API_MODE === 'api' ? 'api' : 'mock'
+let mode: EngineMode = 'api'
 
 export function getEngineMode(): EngineMode {
   return mode
