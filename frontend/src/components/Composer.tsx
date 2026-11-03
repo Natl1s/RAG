@@ -1,14 +1,12 @@
 import { useRef, useState } from 'react'
-import { SUGGESTED_QUESTIONS } from '../data/knowledgeBase'
 
 interface ComposerProps {
   onSend: (text: string) => void
   onStop: () => void
   isStreaming: boolean
-  showSuggestions: boolean
 }
 
-export function Composer({ onSend, onStop, isStreaming, showSuggestions }: ComposerProps) {
+export function Composer({ onSend, onStop, isStreaming }: ComposerProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -37,22 +35,12 @@ export function Composer({ onSend, onStop, isStreaming, showSuggestions }: Compo
   return (
     <div className="composer-wrap">
       <div className="composer">
-        {showSuggestions && (
-          <div className="suggestions">
-            {SUGGESTED_QUESTIONS.map((q) => (
-              <button key={q} type="button" className="suggestion-chip" onClick={() => onSend(q)}>
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="composer-row">
           <textarea
             ref={textareaRef}
             rows={1}
             value={value}
-            placeholder="Задайте вопрос по юридической базе…"
+            placeholder="Задайте вопрос…"
             onChange={(e) => {
               setValue(e.target.value)
               autoResize()
