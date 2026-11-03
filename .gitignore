@@ -1,0 +1,36 @@
+node_modules/
+dist/
+dist-ssr/
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.coverage/
+htmlcov/
+.DS_Store
+*.local
+*.log
+
+# Временные артефакты тестовых прогонов
+.pnpm/
+.pnpm-cache/
+.pnpm-state/
+.pnpm-store/
+.probe-*/
+.smoke/
+.store/
+.tgt/
+.linktest-*
+.nj1/
+.jA/
+
+# Данные для RAG: тяжёлые файлы не коммитим, структуру сохраняем
+dataset/raw/*
+dataset/processed/*
+dataset/index/*
+!dataset/raw/.gitkeep
+!dataset/processed/.gitkeep
+!dataset/index/.gitkeep
