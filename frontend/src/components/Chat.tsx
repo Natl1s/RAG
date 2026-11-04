@@ -5,18 +5,15 @@ import { TypingIndicator } from './TypingIndicator'
 
 interface ChatProps {
   messages: Message[]
-  onEscalate: (message: Message) => void
 }
 
-export function Chat({ messages, onEscalate }: ChatProps) {
+export function Chat({ messages }: ChatProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const last = messages[messages.length - 1]
   const lastPending = last?.pending === true
 
-  // Пока идёт поиск, вместо пустого пузыря показываем индикатор набора.
-  const visibleMessages = messages.filter(
-    (msg) => !(msg.role === 'assistant' && msg.pending && !msg.content && !msg.sources?.length),
-  )
+  // Пока ответ не начал приходить, вместо пустого пузыря показываем индикатор.
+  const visible = messages.filter((m) => !(m.pending && !m.content))
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -25,8 +22,8 @@ export function Chat({ messages, onEscalate }: ChatProps) {
   return (
     <main className="chat" aria-live="polite">
       <div className="chat-inner">
-        {visibleMessages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onEscalate={onEscalate} />
+        {visible.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} />
         ))}
         {lastPending ? <TypingIndicator /> : null}
         <div ref={bottomRef} />
