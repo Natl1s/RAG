@@ -35,3 +35,5 @@ dataset/index/*
 !dataset/processed/.gitkeep
 !dataset/index/.gitkeep
 dataset/data/*
+dataset/*.ipynb
+data

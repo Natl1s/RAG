@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable, Iterable
+from time import monotonic
+
+import faiss
+import numpy as np
+
+from rag.index.contracts import RetrievedChunk, Retriever
+from rag.ingest.schema import Chunk
+from rag.log_config import setup_logging
+
+logger = logging.getLogger(__name__)
+
+EmbedFunc = Callable[[list[str]], np.ndarray]
+
+
+def _l2_normalize(vectors: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return vectors / norms
+
+
+def build_faiss_index(
+    chunks: Iterable[Chunk],
+    embed_func: EmbedFunc,
+    *,
+    min_chunk_chars: int = 0,
+) -> tuple[faiss.IndexFlatIP, list[Chunk]]:
+    """
+    Построить FAISS IndexFlatIP по чанкам.
+
+    Parameters
+    ----------
+    chunks : Iterable[Chunk]
+        Коллекция чанков
+    embed_func : Callable[[list[str]], np.ndarray]
+        Функция получения эмбеддингов (batch)
+    min_chunk_chars : int, optional
+        Минимальная длина чанка; слишком короткие будут отброшены
+
+    Returns
+    -------
+    Tuple[IndexFlatIP, List[Chunk]]
+        Индекс и список чанков в порядке индекса
+    """
+    setup_logging()
+    start = monotonic()
+    chunk_list = [c for c in chunks if len((c.text or "").strip()) >= min_chunk_chars]
+    if not chunk_list:
+        raise ValueError(
+            "Нет чанков для построения FAISS индекса (все пустые или слишком короткие)"
+        )
+    logger.info("Строим FAISS индекс по %s чанкам (min_len=%s)", len(chunk_list), min_chunk_chars)
+
+    texts = [c.text for c in chunk_list]
+    embeddings = embed_func(texts).astype(np.float32)
+    embeddings = _l2_normalize(embeddings)
+    dim = embeddings.shape[1]
+    if dim < 32:
+        raise ValueError(f"Недопустимая размерность эмбеддингов: {dim} (ожидается >= 32)")
+
+    index = faiss.IndexFlatIP(dim)
+    index.add(embeddings)
+    logger.info(
+        "FAISS индекс построен: dim=%s, vectors=%s, time=%.2fs",
+        dim,
+        embeddings.shape[0],
+        monotonic() - start,
+    )
+    return index, chunk_list
+
+
+class DenseRetriever(Retriever):
+    """
+    Семантический retriever на основе FAISS IndexFlatIP.
+    """
+
+    def __init__(
+        self,
+        index: faiss.IndexFlatIP,
+        chunks: list[Chunk],
+        embed_passage: EmbedFunc,
+        embed_query: EmbedFunc | None = None,
+    ) -> None:
+        self._index = index
+        self._chunks = chunks
+        self._embed_passage = embed_passage
+        self._embed_query = embed_query or embed_passage
+
+    def retrieve(self, query: str, k: int) -> list[RetrievedChunk]:
+        """
+        Получить top-k чанков по семантическому поиску.
+
+        Parameters
+        ----------
+        query : str
+            Поисковый запрос
+        k : int
+            Количество возвращаемых чанков
+
+        Returns
+        -------
+        list[RetrievedChunk]
+            Список найденных чанков с score
+        """
+        if not query:
+            return []
+
+        query_vec = self._embed_query([query]).astype(np.float32)
+        query_vec = _l2_normalize(query_vec)
+        scores, indices = self._index.search(query_vec, min(k, len(self._chunks)))
+
+        results: list[RetrievedChunk] = []
+        for score, idx in zip(scores[0], indices[0], strict=True):
+            if idx == -1:
+                continue
+            chunk = self._chunks[idx]
+            results.append(
+                RetrievedChunk(
+                    doc_id=chunk.doc_id,
+                    chunk_id=chunk.chunk_id,
+                    text=chunk.text,
+                    metadata=chunk.metadata,
+                    score=float(score),
+                )
+            )
+        return results
