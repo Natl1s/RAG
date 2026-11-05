@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ask } from '../api/client'
+import { ask } from '../api/apiSse'
 import type { Message } from '../types'
 
 const WELCOME: Message = {
   id: 'welcome',
   role: 'assistant',
-  content:
-    'Здравствуйте! Я — юридический ассистент ПСБ.\n\nЯ ищу ответы в базе юридических знаний и подсказываю, если ответа в ней нет. Задайте вопрос — например, про персональные данные, трудовой договор или налоговые вычеты.',
+  content: 'Здравствуйте! Я — юридический ассистент ПСБ. Задайте вопрос.',
   timestamp: Date.now(),
 }
 
@@ -37,7 +36,6 @@ export function useChat() {
         timestamp: Date.now(),
         pending: true,
         streaming: true,
-        query,
       }
       setMessages((prev) => [...prev, userMsg, assistantMsg])
 
@@ -53,18 +51,13 @@ export function useChat() {
 
       try {
         for await (const ev of ask(query, controller.signal)) {
-          if (ev.type === 'retrieval') {
-            patch((m) => ({ ...m, sources: ev.sources, confidence: ev.confidence, status: ev.status, pending: false }))
-          } else if (ev.type === 'token') {
+          if (ev.type === 'token') {
             patch((m) => ({ ...m, content: m.content + ev.text }))
           } else if (ev.type === 'done') {
             finished = true
             patch((m) => ({
               ...m,
               content: ev.answer,
-              sources: ev.sources,
-              confidence: ev.confidence,
-              status: ev.status,
               latencyMs: ev.latencyMs,
               streaming: false,
               pending: false,
@@ -74,31 +67,17 @@ export function useChat() {
 
         // Поток завершился без события done — например, пользователь нажал «Стоп».
         if (!finished) {
-          patch((m) => ({
-            ...m,
-            content: m.content ? `${m.content}\n\n⏹ Генерация остановлена.` : '⏹ Генерация остановлена.',
-            streaming: false,
-            pending: false,
-          }))
+          patch((m) => ({ ...m, streaming: false, pending: false }))
         }
       } catch (err) {
         const aborted = err instanceof Error && err.name === 'AbortError'
-        if (aborted) {
-          patch((m) => ({
-            ...m,
-            content: m.content ? `${m.content}\n\n⏹ Генерация остановлена.` : '⏹ Генерация остановлена.',
-            streaming: false,
-            pending: false,
-          }))
-        } else {
-          const text = err instanceof Error ? err.message : 'Не удалось получить ответ'
-          patch((m) => ({
-            ...m,
-            content: m.content ? `${m.content}\n\n⚠️ Ошибка: ${text}` : `⚠️ Ошибка: ${text}`,
-            streaming: false,
-            pending: false,
-          }))
-        }
+        const text = aborted ? 'Генерация остановлена.' : `Ошибка: ${err instanceof Error ? err.message : 'нет ответа'}`
+        patch((m) => ({
+          ...m,
+          content: m.content ? `${m.content}\n\n${text}` : text,
+          streaming: false,
+          pending: false,
+        }))
       } finally {
         setIsStreaming(false)
         abortRef.current = null
@@ -116,15 +95,5 @@ export function useChat() {
     setMessages([WELCOME])
   }, [])
 
-  /** Добавить служебное сообщение ассистента (например, подтверждение эскалации). */
-  const append = useCallback((content: string) => {
-    setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content, timestamp: Date.now() }])
-  }, [])
-
-  /** Отметить, что вопрос передан юристу (или снять отметку при ошибке). */
-  const markEscalated = useCallback((id: string, value = true) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, escalated: value } : m)))
-  }, [])
-
-  return { messages, isStreaming, send, stop, clear, append, markEscalated }
+  return { messages, isStreaming, send, stop, clear }
 }

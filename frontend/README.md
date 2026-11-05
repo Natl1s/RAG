@@ -1,22 +1,17 @@
 # Frontend — чат-бот «Юридический ассистент ПСБ»
 
-Браузерный чат-бот на React + TypeScript + Vite с заглушками RAG/LLM.
-Этот каталог можно запускать отдельно от бэкенда.
+Браузерный чат-бот на React + TypeScript + Vite. Ответы приходят потоком SSE
+от FastAPI-бэкенда из `../backend`.
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Откройте http://localhost:5173.
-
-- Режим **«Заглушка»** — всё работает в браузере без сервера.
-- Режим **«API»** — нужен FastAPI-бэкенд из `../backend` (см. корневой README).
+Откройте http://localhost:5173 — нужен запущенный бэкенд (`uvicorn main:app --port 8000`).
 
 Основные файлы:
 
-- `src/api/client.ts` — единая точка входа в модель (`mock` | `api`);
-- `src/lib/mockEngine.ts` — браузерная заглушка RAG + LLM;
+- `src/api/apiSse.ts` — чтение потока SSE;
 - `src/hooks/useChat.ts` — состояние чата и потоковый вывод;
-- `src/components/` — интерфейс чата;
-- `knowledge/knowledge.json` — база знаний (её же читает FastAPI-бэкенд).
+- `src/components/` — интерфейс чата.

@@ -1,4 +1,4 @@
-// Клиент FastAPI-заглушки: POST /api/chat и чтение потока Server-Sent Events.
+// Клиент FastAPI: POST /api/chat и чтение потока Server-Sent Events.
 // Формат строки: `data: {json}\n\n`, завершение — `data: [DONE]`.
 
 import type { AskEvent } from '../types'
@@ -21,7 +21,7 @@ function parseEvent(raw: string): AskEvent | null {
   }
 }
 
-export async function* askApi(query: string, signal?: AbortSignal): AsyncGenerator<AskEvent> {
+export async function* ask(query: string, signal?: AbortSignal): AsyncGenerator<AskEvent> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: {
