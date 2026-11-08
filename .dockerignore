@@ -8,7 +8,8 @@
 **/*.pyc
 **/.venv
 **/.env
-dataset
+dataset/data
+dataset/*.ipynb
 web
 .probe-web
 .smoke
