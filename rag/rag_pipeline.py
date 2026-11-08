@@ -1,3 +1,4 @@
+from os import path
 from pathlib import Path
 
 from rag.ingest.chunking import chunk_documents
@@ -9,18 +10,9 @@ from rag.ingest.load_dataset import load_documents
 DATA_DIR = Path("./dataset/data/RusLawOD")
 QUERY = "Какие положения налоговой политики предлагалось учесть при доработке Налогового кодекса?"
 
-
-def main():
+def initialaze_rag(path_to_docs: Path, limit: int = 100):
     # 1. Загружаем документы
-    print(DATA_DIR.absolute())
-    if not DATA_DIR.is_dir() or not any(DATA_DIR.glob("*.parquet")):
-        raise FileNotFoundError(f"Parquet-файлы не найдены: {DATA_DIR}")
-
-    documents = load_documents(DATA_DIR, limit=100)
-    if not documents:
-        raise ValueError("Не загружено ни одного документа. Проверьте N_DOCS и содержимое Parquet.")
-
-    print(f"Документов: {len(documents)}")
+    documents = upload_docs(path_to_docs, limit)
 
     # 2. Разбиваем на чанки
     chunks = chunk_documents(
@@ -45,16 +37,33 @@ def main():
         min_chunk_chars=50,
     )
     print("Индексы построены:", list(retrievers.keys()))
-    # 5. Ищем релевантные чанки
-    query = QUERY
-    results = retrievers["hybrid"].retrieve(query, k=5)
+    return retrievers
 
-    # 6. Формируем контекст для LLM
+def search_chunks(query: str, retrievers):
+    results = retrievers["hybrid"].retrieve(query, k=5)
     context = "\n\n".join(
         f"Источник: {result.doc_id}\n"
         f"Текст: {result.text}"
         for result in results
     )
+    return context
+
+def upload_docs(path_to_docs: Path, limit: int = 100):
+    print(path_to_docs.absolute())
+    if not path_to_docs.is_dir() or not any(path_to_docs.glob("*.parquet")):
+        raise FileNotFoundError(f"Parquet-файлы не найдены: {path_to_docs.absolute()}")
+
+    documents = load_documents(path_to_docs, limit)
+    if not documents:
+        raise ValueError("Не загружено ни одного документа. Проверьте N_DOCS и содержимое Parquet.")
+
+    print(f"Документов: {len(documents)}")
+    return documents
+
+def main():
+    retrievers = initialaze_rag(DATA_DIR, limit=100)
+    # 5. Ищем релевантные чанки
+    context = search_chunks(QUERY, retrievers)
 
     print("\n=== КОНТЕКСТ ДЛЯ LLM ===\n")
     print(context)
