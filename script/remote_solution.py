@@ -44,7 +44,6 @@ def env_float(name: str, default: float) -> float:
 DATA_DIR = Path(env("DATA_DIR", "data"))
 API_BASE = (env("LLM_BASE_URL") or env("BASE_URL") or env("OPENAI_BASE_URL")).rstrip("/")
 LLM_KEY = env("LLM_API_KEY") or env("OPENAI_API_KEY")
-EMBED_KEY = env("EMBEDDER_API_KEY") or LLM_KEY
 RERANK_KEY = env("RERANKER_API_KEY") or LLM_KEY
 
 LLM_MODEL = env("LLM_MODEL") or env("GEN_MODEL") or env("OPENAI_MODEL", "deepseek/deepseek-v4.1-flash")
@@ -142,25 +141,6 @@ def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
     response.raise_for_status()
     return response.json()
 
-
-def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
-    """Пример вызова EMB_MODEL через POST /embeddings."""
-    result = post(client, "/embeddings", EMBED_KEY, {
-        "model": EMB_MODEL,
-        "input": texts,
-        "encoding_format": "float",
-    })
-    vectors: list[list[float] | None] = [None] * len(texts)
-    for position, item in enumerate(result["data"]):
-        index = int(item.get("index", position))
-        if index < 0 or index >= len(texts):
-            raise ValueError("Некорректный индекс embedding")
-        vector = item["embedding"]
-        norm = math.sqrt(sum(float(x) ** 2 for x in vector)) or 1.0
-        vectors[index] = [float(x) / norm for x in vector]
-    if any(v is None for v in vectors):
-        raise ValueError("Получены не все embeddings")
-    return vectors  # type: ignore[return-value]
 
 def select_documents(client: httpx.Client, question: str,
                      documents: list[tuple[str, str]]) -> list[tuple[str, str]]:
