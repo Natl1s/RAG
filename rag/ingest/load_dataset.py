@@ -62,6 +62,15 @@ def load_documents_from_slice(path: str | Path) -> list[Document]:
         return [document_from_record(json.loads(line)) for line in stream if line.strip()]
 
 
+
+def read_docs(documents):
+    docs: list[Document] = []
+    for doc_name, doc_path in documents:
+        doc = Document(doc_name, doc_path)
+        docs.append(doc)
+    return docs
+
+
 def load_documents(data_dir: Path, limit: int = 1000) -> list[Document]:
     """Load and normalize up to limit nonempty documents from Parquet."""
     docs: list[Document] = []

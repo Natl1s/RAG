@@ -1,18 +1,26 @@
 from os import path
 from pathlib import Path
 
+import httpx
+
 from rag.ingest.chunking import chunk_documents
 from rag.embeddings.st import SentenceTransformerEmbeddings
 from rag.cli.retrieve_cli import build_retrievers
-from rag.ingest.load_dataset import load_documents
+from rag.ingest.load_dataset import read_docs
+from ..script.embeddings import embeddings
 
+class ExternalEmbeddings:
+    def __init__(self, client):
+        self.model_name = "external-embeddings"
+        self.client = client
 
-DATA_DIR = Path("./dataset/data/RusLawOD")
-QUERY = "Какие положения налоговой политики предлагалось учесть при доработке Налогового кодекса?"
+    def embed(self, text: str) -> list[float]:
+        return embeddings(self.client, text)
 
-def initialaze_rag(path_to_docs: Path, limit: int = 100):
+    
+def initialaze_rag(path_to_docs, client: httpx.Client):
     # 1. Загружаем документы
-    documents = upload_docs(path_to_docs, limit)
+    documents = read_docs(path_to_docs)
 
     # 2. Разбиваем на чанки
     chunks = chunk_documents(
@@ -23,10 +31,8 @@ def initialaze_rag(path_to_docs: Path, limit: int = 100):
     print(f"Чанков: {len(chunks)}")
 
     # 3. Инициализируем модель эмбеддингов
-    embedder = SentenceTransformerEmbeddings(
-        model_name="intfloat/multilingual-e5-small",
-        batch_size=32,
-    )
+    embedder = ExternalEmbeddings(client)
+
     print("Эмбеддер инициализирован:", embedder.model_name)
     # 4. Строим поисковые индексы
     retrievers = build_retrievers(
@@ -48,26 +54,14 @@ def search_chunks(query: str, retrievers):
     )
     return context
 
-def upload_docs(path_to_docs: Path, limit: int = 100):
-    print(path_to_docs.absolute())
-    if not path_to_docs.is_dir() or not any(path_to_docs.glob("*.parquet")):
-        raise FileNotFoundError(f"Parquet-файлы не найдены: {path_to_docs.absolute()}")
+# def main():
+#     retrievers = initialaze_rag(DATA_DIR)
+#     # 5. Ищем релевантные чанки
+#     context = search_chunks(QUERY, retrievers)
 
-    documents = load_documents(path_to_docs, limit)
-    if not documents:
-        raise ValueError("Не загружено ни одного документа. Проверьте N_DOCS и содержимое Parquet.")
-
-    print(f"Документов: {len(documents)}")
-    return documents
-
-def main():
-    retrievers = initialaze_rag(DATA_DIR, limit=100)
-    # 5. Ищем релевантные чанки
-    context = search_chunks(QUERY, retrievers)
-
-    print("\n=== КОНТЕКСТ ДЛЯ LLM ===\n")
-    print(context)
+#     print("\n=== КОНТЕКСТ ДЛЯ LLM ===\n")
+#     print(context)
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
