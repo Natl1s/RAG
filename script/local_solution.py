@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from pathlib import Path
-
+from ..rag.rag_pipeline import *
 # import httpx
 
 
@@ -166,7 +166,8 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
 
 def select_documents(question: str,
                      documents: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    pass
+    retrievers = initialaze_rag(documents)
+    return search_chunks(question, retrievers)
 
 
 def generate(docs: list[tuple[str, str]]) -> str:
