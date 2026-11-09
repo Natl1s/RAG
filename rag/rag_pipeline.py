@@ -18,7 +18,7 @@ class ExternalEmbeddings:
         return embeddings(self.client, text)
 
     
-def initialaze_rag(path_to_docs, client: httpx.Client):
+def initialaze_rag(path_to_docs, flag: str = "local", client: httpx.Client = None):
     # 1. Загружаем документы
     documents = read_docs(path_to_docs)
 
@@ -30,8 +30,15 @@ def initialaze_rag(path_to_docs, client: httpx.Client):
     )
     print(f"Чанков: {len(chunks)}")
 
-    # 3. Инициализируем модель эмбеддингов
-    embedder = ExternalEmbeddings(client)
+    if flag == "local":
+        embedder = SentenceTransformerEmbeddings(
+            model_name="intfloat/multilingual-e5-small",
+            batch_size=32,
+        )
+    else:
+        if client is None:
+            raise ValueError("Client must be provided for external embeddings.")
+        embedder = ExternalEmbeddings(client)
 
     print("Эмбеддер инициализирован:", embedder.model_name)
     # 4. Строим поисковые индексы
