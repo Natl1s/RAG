@@ -12,13 +12,27 @@ import random
 import re
 import time
 from typing import AsyncGenerator
-
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from rag.rag_pipeline import initialaze_rag, search_chunks
+from pathlib import Path
+RETRIEVERS: dict[str, object] | None = None
 
-app = FastAPI(title="PSB Legal Assistant API (stub)")
+def warm_up(app: FastAPI) -> None:
+    global RETRIEVERS
+    if RETRIEVERS is not None:
+        return
+    RETRIEVERS = initialaze_rag(Path(__file__).resolve().parents[1] / "dataset/data/RusLawOD")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    warm_up(app)
+    yield
+
+app = FastAPI(title="PSB Legal Assistant API (stub)", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,13 +41,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class ChatRequest(BaseModel):
     query: str
 
 
 def generate_answer(query: str) -> str:
-    return "BLOB"
+    return search_chunks(query, RETRIEVERS)
 
 
 def sse(obj: dict) -> str:
