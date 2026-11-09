@@ -14,16 +14,8 @@ COPY backend ./backend
 COPY rag ./rag
 
 COPY dataset/dataset_tool.py ./dataset/dataset_tool.py
-RUN if ! ls dataset/data/RusLawOD/*.parquet >/dev/null 2>&1; then \
-        echo "Dataset not found, downloading..."; \
-        python dataset/dataset_tool.py download; \
-    else \
-        echo "Dataset already present, skipping download"; \
-    fi
-
-RUN EMBEDDING_ALLOW_DOWNLOAD=true python -c \
-    "from rag.embeddings.st import SentenceTransformerEmbeddings as E; \
-     E(model_name='intfloat/multilingual-e5-small').encode_queries(['warmup'])"
+RUN sed -i 's/\r$//' /app/backend/docker-entrypoint.sh && chmod +x /app/backend/docker-entrypoint.sh
+ENTRYPOINT ["/app/backend/docker-entrypoint.sh"]
 
 WORKDIR /app/backend
 EXPOSE 8000

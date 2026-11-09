@@ -1,0 +1,2 @@
+# Shell scripts must keep LF line endings: Docker's /bin/sh fails on CRLF shebangs.
+*.sh text eol=lf

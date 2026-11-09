@@ -1,5 +1,8 @@
 services:
   backend:
+    volumes:
+      - psb-dataset:/app/dataset/data
+      - psb-models:/app/data/cache/embeddings
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -11,7 +14,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 600s
+      start_period: 1200s
 
   frontend:
     build:
@@ -23,3 +26,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  psb-dataset:
+  psb-models:
