@@ -13,6 +13,7 @@ htmlcov/
 .DS_Store
 *.local
 *.log
+env-creation.py
 
 # Временные артефакты тестовых прогонов
 .pnpm/
