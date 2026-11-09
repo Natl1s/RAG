@@ -47,11 +47,7 @@ def initialaze_rag(path_to_docs, client: httpx.Client):
 
 def search_chunks(query: str, retrievers):
     results = retrievers["hybrid"].retrieve(query, k=5)
-    context = "\n\n".join(
-        f"Источник: {result.doc_id}\n"
-        f"Текст: {result.text}"
-        for result in results
-    )
+    context = [[result.doc_id, result.text] for result in results]
     return context
 
 # def main():

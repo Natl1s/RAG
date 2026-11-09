@@ -17,7 +17,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
-
+from ..rag.rag_pipeline import *
 import httpx
 
 
@@ -144,7 +144,8 @@ def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
 
 def select_documents(client: httpx.Client, question: str,
                      documents: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    pass
+    retrievers = initialaze_rag(documents, client)
+    return search_chunks(question, retrievers)
 
 
 def generate(client: httpx.Client, question: str, docs: list[tuple[str, str]]) -> str:
