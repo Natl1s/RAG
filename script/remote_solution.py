@@ -17,7 +17,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
-from ..rag.rag_pipeline import *
+from rag.rag_pipeline import initialaze_rag, search_chunks
 import httpx
 
 
@@ -143,8 +143,7 @@ def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
 
 
 def select_documents(client: httpx.Client, question: str,
-                     documents: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    retrievers = initialaze_rag(documents, client)
+                     retrievers) -> list[tuple[str, str]]:
     return search_chunks(question, retrievers)
 
 
@@ -180,11 +179,12 @@ def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
     print(f"Вопросы: {len(questions)}; документы: {len(documents)}; TOP_K={TOP_K}", flush=True)
-
+    with httpx.Client(timeout=90.0) as client:
+        retrievers = initialaze_rag(documents, "remote", client)
     def work(position: int, question: str) -> tuple[int, str]:
         try:
             with httpx.Client(timeout=90.0) as client:
-                selected = select_documents(client, question, documents)
+                selected = select_documents(client, question, retrievers)
                 return position, generate(client, question, selected)
         except Exception as exc:
             print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)

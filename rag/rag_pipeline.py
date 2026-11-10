@@ -2,7 +2,7 @@ from os import path
 from pathlib import Path
 
 import httpx
-
+import numpy as np
 from rag.ingest.chunking import chunk_documents
 from rag.embeddings.st import SentenceTransformerEmbeddings
 from rag.cli.retrieve_cli import build_retrievers
@@ -14,8 +14,11 @@ class ExternalEmbeddings:
         self.model_name = "external-embeddings"
         self.client = client
 
-    def embed(self, text: str) -> list[float]:
-        return embeddings(self.client, text)
+    def encode_passages(self, texts) -> np.ndarray:
+        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
+
+    def encode_queries(self, texts) -> np.ndarray:
+        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
 
     
 def initialaze_rag(path_to_docs, flag: str = "local", client: httpx.Client = None):

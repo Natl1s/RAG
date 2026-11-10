@@ -14,7 +14,7 @@ htmlcov/
 *.local
 *.log
 env-creation.py
-
+submission/
 # Временные артефакты тестовых прогонов
 .pnpm/
 .pnpm-cache/
