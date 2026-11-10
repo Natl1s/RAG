@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from pathlib import Path
-from ..rag.rag_pipeline import *
+from rag.rag_pipeline import initialaze_rag, search_chunks
 # import httpx
 
 
@@ -42,8 +42,8 @@ def env_float(name: str, default: float) -> float:
 
 
 # Настройки приходят с платформы. В ZIP НЕ НУЖНО класть секреты и .env.
-# DATA_DIR = Path(env("DATA_DIR", "data"))
-DATA_DIR = Path(__file__).resolve().parent / "dataset"
+DATA_DIR = Path(env("DATA_DIR", "data"))
+# DATA_DIR = Path(__file__).resolve().parent / "dataset"
 # API_BASE = (env("LLM_BASE_URL") or env("BASE_URL") or env("OPENAI_BASE_URL")).rstrip("/")
 # LLM_KEY = env("LLM_API_KEY") or env("OPENAI_API_KEY")
 # EMBED_KEY = env("EMBEDDER_API_KEY") or LLM_KEY
@@ -70,6 +70,7 @@ def words(text: str) -> set[str]:
 
 
 def find_file(*names: str) -> Path:
+    print(DATA_DIR)
     for root in (DATA_DIR, Path(__file__).resolve().parent / DATA_DIR, Path.cwd()):
         for name in names:
             path = root / name
@@ -165,8 +166,8 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
 #     return vectors  # type: ignore[return-value]
 
 def select_documents(question: str,
-                     documents: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    retrievers = initialaze_rag(documents)
+                     retrievers) -> list[tuple[str, str]]:
+    
     return search_chunks(question, retrievers)
 
 
@@ -179,16 +180,16 @@ def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
 
-    
+    retrievers = initialaze_rag(documents)
     def work(position: int, question: str) -> tuple[int, str]:
         try:
-            selected = select_documents(question, documents)
+            selected = select_documents(question, retrievers)
             return position, generate(selected)
         except Exception as exc:
             print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)
             return position, FALLBACK
 
-
+    
     answers = [FALLBACK] * len(questions)
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = [pool.submit(work, i, question) for i, (_, question) in enumerate(questions)]

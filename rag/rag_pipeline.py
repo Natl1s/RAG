@@ -7,7 +7,7 @@ from rag.ingest.chunking import chunk_documents
 from rag.embeddings.st import SentenceTransformerEmbeddings
 from rag.cli.retrieve_cli import build_retrievers
 from rag.ingest.load_dataset import read_docs
-from ..script.embeddings import embeddings
+from script.embeddings import embeddings
 
 class ExternalEmbeddings:
     def __init__(self, client):
@@ -32,7 +32,7 @@ def initialaze_rag(path_to_docs, flag: str = "local", client: httpx.Client = Non
 
     if flag == "local":
         embedder = SentenceTransformerEmbeddings(
-            model_name="intfloat/multilingual-e5-small",
+            model_name="models/multilingual-e5-small",
             batch_size=32,
         )
     else:
@@ -54,7 +54,7 @@ def initialaze_rag(path_to_docs, flag: str = "local", client: httpx.Client = Non
 
 def search_chunks(query: str, retrievers):
     results = retrievers["hybrid"].retrieve(query, k=5)
-    context = [[result.doc_id, result.text] for result in results]
+    context = [(str(result.doc_id), str(result.text)) for result in results]
     return context
 
 # def main():
