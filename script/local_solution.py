@@ -20,6 +20,10 @@ from xml.etree import ElementTree as ET
 from pathlib import Path
 from rag.rag_pipeline import initialaze_rag, search_chunks
 # import httpx
+from dotenv import load_dotenv
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(_REPO_ROOT / ".env", override=False)
 
 
 def env(name: str, default: str = "") -> str:
@@ -42,8 +46,8 @@ def env_float(name: str, default: float) -> float:
 
 
 # Настройки приходят с платформы. В ZIP НЕ НУЖНО класть секреты и .env.
-DATA_DIR = Path('./dataset')
-# DATA_DIR = Path(__file__).resolve().parent / "dataset"
+# DATA_DIR = Path('./dataset')
+DATA_DIR = Path(env("DATA_DIR", "data"))
 # API_BASE = (env("LLM_BASE_URL") or env("BASE_URL") or env("OPENAI_BASE_URL")).rstrip("/")
 # LLM_KEY = env("LLM_API_KEY") or env("OPENAI_API_KEY")
 # EMBED_KEY = env("EMBEDDER_API_KEY") or LLM_KEY
