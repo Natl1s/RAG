@@ -111,56 +111,6 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
     return documents
 
 
-# def snippet(text: str) -> str:
-#     # Минимальный пример применения CHUNKER, не полноценное разбиение на чанки.
-#     piece = text[:SNIPPET_CHARS]
-#     if CHUNKER == "common" and len(text) > SNIPPET_CHARS:
-#         boundary = piece.rfind("\n")
-#         if boundary > SNIPPET_CHARS // 2:
-#             piece = piece[:boundary]
-#     return piece.strip()
-
-
-# def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
-#     if not key:
-#         raise ValueError("На платформе отсутствует API-ключ")
-#     response = client.post(
-#         API_BASE + path,
-#         headers={"Authorization": "Bearer " + key},
-#         json=payload,
-#     )
-#     response.raise_for_status()
-#     return response.json()
-
-
-# def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
-#     """Пример вызова EMB_MODEL через POST /embeddings."""
-#     result = post(client, "/embeddings", EMBED_KEY, {
-#         "model": EMB_MODEL,
-#         "input": texts,
-#         "encoding_format": "float",
-#     })
-#     vectors: list[list[float] | None] = [None] * len(texts)
-#     for position, item in enumerate(result["data"]):
-#         index = int(item.get("index", position))
-#         if index < 0 or index >= len(texts):
-#             raise ValueError("Некорректный индекс embedding")
-#         vector = item["embedding"]
-#         norm = math.sqrt(sum(float(x) ** 2 for x in vector)) or 1.0
-#         vectors[index] = [float(x) / norm for x in vector]
-#     if any(v is None for v in vectors):
-#         raise ValueError("Получены не все embeddings")
-#     return vectors  # type: ignore[return-value]
-
-def select_documents(question: str,
-                     retrievers) -> list[tuple[str, str]]:
-    
-    return search_chunks(question, retrievers)
-
-
-def generate(docs: list[tuple[str, str]]) -> str:
-    return docs
-
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
