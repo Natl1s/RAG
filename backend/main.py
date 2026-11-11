@@ -46,7 +46,8 @@ class ChatRequest(BaseModel):
 
 
 def generate_answer(query: str) -> str:
-    return search_chunks(query, RETRIEVERS)
+    chunks = search_chunks(query, RETRIEVERS)
+    return "\n\n".join(f"doc_id: {doc_id}\n{text}" for doc_id, text in chunks)
 
 
 def sse(obj: dict) -> str:
