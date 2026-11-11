@@ -7,7 +7,7 @@ from typing import Any
 @dataclass
 class Document:
     """
-    Представление исходного документа RusLawOD в нормализованном виде.
+    Представление исходного документа в нормализованном виде.
 
     Parameters
     ----------
