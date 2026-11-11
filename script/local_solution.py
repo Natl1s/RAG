@@ -18,7 +18,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from pathlib import Path
-from rag.rag_pipeline import initialaze_rag, search_chunks
+from rag.config import RAGConfig
+from rag.rag_pipeline import RAG
 # import httpx
 from dotenv import load_dotenv
 
@@ -75,7 +76,7 @@ def words(text: str) -> set[str]:
 
 def find_file(*names: str) -> Path:
     print(DATA_DIR)
-    for root in (DATA_DIR, Path(__file__).resolve().parent / DATA_DIR, Path.cwd()):
+    for root in (DATA_DIR, Path(__file__).resolve().parent / DATA_DIR, Path.cwd(), _REPO_ROOT / "dataset"):
         for name in names:
             path = root / name
             if path.is_file():
@@ -169,26 +170,25 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
 #         raise ValueError("Получены не все embeddings")
 #     return vectors  # type: ignore[return-value]
 
-def select_documents(question: str,
-                     retrievers) -> list[tuple[str, str]]:
-    
-    return search_chunks(question, retrievers)
+def select_documents(question: str, rag: RAG) -> list[tuple[str, str]]:
+    return rag.search_chunks(question)
 
 
 def generate(docs: list[tuple[str, str]]) -> str:
-    return docs
+    return "\n\n".join(f"Источник: {name}\n{text}" for name, text in docs) or FALLBACK
 
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
 
-    retrievers = initialaze_rag(documents)
+    rag = RAG(RAGConfig())
+    rag.build(documents)
     def work(position: int, question: str) -> tuple[int, str]:
         try:
-            selected = select_documents(question, retrievers)
+            selected = select_documents(question, rag)
             return position, generate(selected)
         except Exception as exc:
-            print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)
+            print(f"Ошибка вопроса {position}: {type(exc).__name__}: {exc}", file=sys.stderr)
             return position, FALLBACK
 
     
