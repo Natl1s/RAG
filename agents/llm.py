@@ -4,8 +4,13 @@
 В коде нет фиксированного имени модели: на платформе используется то,
 что передала платформа, локально — то, что указано в ``.env``.
 
-Если LLM недоступна (нет ключа/URL/модели, ошибка сети или API), функции
-безопасно деградируют до RAG-fallback и пишут предупреждение в консоль.
+Незаданные настройки LLM — громкая ошибка конфигурации (ValueError):
+проблему видно сразу при старте. Если же запрос упал или модель вернула
+пустой ответ, функции мягко деградируют до RAG-fallback и пишут
+предупреждение в лог.
+
+Каждый запрос логируется на уровне INFO: промпт целиком и сырой ответ
+модели до нормализации (настройка логов — agents/logging_setup.py).
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -30,6 +36,7 @@ from agents.prompts import (
 from agents.state import GradeResult
 
 __all__ = [
+    "ensure_llm_configured",
     "generate_answer",
     "judge_relevance",
     "rewrite_query",
@@ -93,6 +100,17 @@ def _missing_settings(settings: Settings) -> list[str]:
     return missing
 
 
+def ensure_llm_configured(settings: Settings) -> None:
+    """Проверить настройки LLM; незаданные переменные — громкая ошибка."""
+    missing = _missing_settings(settings)
+    if missing:
+        raise ValueError(
+            "LLM не настроена: не заданы "
+            + ", ".join(missing)
+            + ". Впишите их в .env (шаблон — .env.example, описание — agents/README.md)."
+        )
+
+
 def _build_llm(
     settings: Settings,
     *,
@@ -120,30 +138,55 @@ async def _chat_completion(
     messages: list[BaseMessage],
     temperature: float | None = None,
     max_tokens: int | None = None,
+    label: str = "llm",
 ) -> str:
     """Отправить запрос в LLM и вернуть текст ответа.
 
-    При отсутствии настроек или ошибке API возвращает пустую строку.
-    Вызывающий код сам выбирает безопасный fallback.
-    """
-    missing = _missing_settings(settings)
-    if missing:
-        logger.warning(
-            "LLM недоступна: не заданы %s. Используется RAG-fallback.",
-            ", ".join(missing),
-        )
-        return ""
+    Незаданные настройки — ValueError: проблему конфигурации видно сразу.
+    Ошибка API, сбой сети или пустой ответ обрабатываются мягко: пустая
+    строка, вызывающий код сам выбирает безопасный fallback.
 
-    llm = _build_llm(settings, temperature=temperature, max_tokens=max_tokens)
+    Промпт и сырой ответ модели логируются на уровне INFO.
+    """
+    ensure_llm_configured(settings)
+
+    logger.info(
+        "[%s] LLM запрос: model=%s base_url=%s",
+        label,
+        settings.llm_model,
+        settings.llm_base_url,
+    )
+    for message in messages:
+        logger.info("[%s] промпт [%s]:\n%s", label, message.type, message.content)
+
     try:
-        response = await llm.ainvoke(messages)
+        llm = _build_llm(settings, temperature=temperature, max_tokens=max_tokens)
     except Exception as exc:
         logger.warning(
-            "LLM request failed: %s: %s. Используется RAG-fallback.",
+            "Не удалось создать LLM-клиент: %s: %s. Используется RAG-fallback.",
             type(exc).__name__,
             exc,
         )
         return ""
+
+    started_at = time.monotonic()
+    try:
+        response = await llm.ainvoke(messages)
+    except Exception as exc:
+        logger.warning(
+            "[%s] LLM request failed: %s: %s. Используется RAG-fallback.",
+            label,
+            type(exc).__name__,
+            exc,
+        )
+        return ""
+
+    logger.info(
+        "[%s] LLM ответ (сырой):\n%s",
+        label,
+        getattr(response, "content", ""),
+    )
+    logger.info("[%s] LLM вызов завершён за %.2f c", label, time.monotonic() - started_at)
 
     content = _normalize_text(getattr(response, "content", ""))
     if not content:
@@ -231,6 +274,7 @@ async def judge_relevance(
         messages=messages,
         temperature=0.0,
         max_tokens=256,
+        label="judge",
     )
 
     parsed = _parse_grade(raw)
@@ -270,6 +314,7 @@ async def rewrite_query(
         messages=messages,
         temperature=0.1,
         max_tokens=128,
+        label="rewrite",
     )
 
     cleaned = _clean_rewrite(rewritten)
@@ -295,5 +340,9 @@ async def generate_answer(
         SystemMessage(content=ANSWER_SYSTEM_PROMPT),
         HumanMessage(content=answer_user_prompt(query, normalized_context, history)),
     ]
-    answer = await _chat_completion(settings=settings, messages=messages)
+    answer = await _chat_completion(
+        settings=settings,
+        messages=messages,
+        label="generate",
+    )
     return answer or normalized_context

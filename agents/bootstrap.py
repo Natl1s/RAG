@@ -11,6 +11,7 @@ from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agents.config import Settings
+from agents.logging_setup import setup_logging
 # from agents.rag import SearchFn
 from agents.service import AgentService
 
@@ -22,7 +23,13 @@ def build_local_service(
     settings: Settings | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> AgentService:
-    """Собрать агент, подключённый к готовому RAG-индексу."""
+    """Собрать агент, подключённый к готовому RAG-индексу.
+
+    Перед сборкой включает локальное логирование: консоль + файл
+    ``logs/llm_<время запуска>.log``. Файл отключается переменной
+    ``LLM_LOG_FILE=off``; итоговое решение эту функцию не вызывает.
+    """
+    setup_logging()
     return AgentService(
         rag_client,
         settings=settings,

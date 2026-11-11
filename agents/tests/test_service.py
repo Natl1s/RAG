@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from agents.config import Settings
 from agents.service import AgentService
@@ -21,11 +22,31 @@ class AgentServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.retrievers = object()
         self.search = FakeSearch([("doc-1", "Текст документа")])
+        completion = patch(
+            "agents.llm._chat_completion",
+            new=AsyncMock(return_value=""),
+        )
+        self.completion = completion.start()
+        self.addCleanup(completion.stop)
         self.service = AgentService(
             self.retrievers,
-            settings=Settings(llm_base_url="", llm_api_key="", llm_model=""),
+            settings=Settings(
+                llm_base_url="http://llm.local/v1",
+                llm_api_key="test-key",
+                llm_model="test-model",
+            ),
             search_fn=self.search,
         )
+
+    def test_missing_llm_settings_raise_value_error(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            AgentService(
+                self.retrievers,
+                settings=Settings(llm_base_url="", llm_api_key="", llm_model=""),
+                search_fn=self.search,
+            )
+
+        self.assertIn("LLM_API_KEY", str(raised.exception))
 
     def test_sync_answer_returns_rag_context(self) -> None:
         answer = self.service.answer("u-1", "налоги")

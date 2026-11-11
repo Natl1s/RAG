@@ -16,6 +16,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from agents.config import Settings, get_settings
 from agents.graph import build_graph
 # from agents.rag import RagClient, SearchFn
+from agents.llm import ensure_llm_configured
 from agents.state import AgentResult
 from rag.rag_pipeline import RAG
 __all__ = ["AgentService"]
@@ -27,6 +28,9 @@ if sys.platform == "win32":
 
 class AgentService:
     """Сервис, который превращает вопрос пользователя в готовый ответ.
+
+    Настройки LLM обязательны: без ``LLM_BASE_URL`` / ``LLM_API_KEY`` /
+    ``LLM_MODEL`` конструктор падает с понятной ошибкой при старте.
 
     Parameters
     ----------
@@ -48,6 +52,7 @@ class AgentService:
         checkpointer: BaseCheckpointSaver | None = None,
     ) -> None:
         self._settings = settings or get_settings()
+        ensure_llm_configured(self._settings)
         self._graph = build_graph(
             rag_client,
             self._settings,
