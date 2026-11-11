@@ -8,14 +8,14 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agents.config import Settings
 from agents.nodes import make_generate_node, make_grade_node, make_retrieve_node
-from agents.rag import RagClient
+# from agents.rag import RagClient
 from agents.state import AgentState
-
+from rag.rag_pipeline import RAG
 __all__ = ["build_graph"]
 
 
 def build_graph(
-    rag: RagClient,
+    rag_client: RAG,
     settings: Settings,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
@@ -31,7 +31,7 @@ def build_graph(
     """
     graph = StateGraph(AgentState)
 
-    graph.add_node("retrieve", make_retrieve_node(rag))
+    graph.add_node("retrieve", make_retrieve_node(rag_client))
     graph.add_node("grade", make_grade_node(settings))
     graph.add_node("generate", make_generate_node(settings))
 

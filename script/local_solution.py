@@ -115,9 +115,9 @@ def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
 
-    rag = RAG(RAGConfig())
-    rag.build(documents)
-    # service = build_local_service(rag.retrievers)
+    rag_client = RAG(RAGConfig())
+    rag_client.build(documents)
+    service = build_local_service(rag_client)
 
     def work(position: int, question: str) -> tuple[int, str]:
         try:
