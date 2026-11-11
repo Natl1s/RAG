@@ -8,6 +8,8 @@
 **/*.pyc
 **/.venv
 **/.env
+**/.env.*
+!.env.example
 dataset/data
 dataset/*.ipynb
 web
