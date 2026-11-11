@@ -9,7 +9,7 @@ import numpy as np
 from huggingface_hub import snapshot_download
 from sentence_transformers import SentenceTransformer
 
-from rag.embeddings.config import get_default_model
+# from rag.embeddings.config import get_default_model
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,8 @@ class SentenceTransformerEmbeddings:
         normalize : bool, optional
             Применять ли L2-нормализацию к вектору
         """
-        self.model_name = model_name or os.getenv("EMBEDDING_MODEL") or get_default_model()
+        self.model_name = model_name or os.getenv("EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL_DEFAULT") or  "models/multilingual-e5-small"
+        # or get_default_model()
         self.batch_size = batch_size or int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
         self.normalize = normalize
         self._model: SentenceTransformer | None = None

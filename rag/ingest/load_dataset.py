@@ -12,32 +12,32 @@ from rag.log_config import setup_logging
 logger = logging.getLogger(__name__)
 
 
-def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    """
-    Загрузка локального JSONL-файла с RusLawOD-совместимыми записями.
+# def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
+#     """
+#     Загрузка локального JSONL-файла с RusLawOD-совместимыми записями.
 
-    Parameters
-    ----------
-    path : str | Path
-        Путь до JSONL файла
+#     Parameters
+#     ----------
+#     path : str | Path
+#         Путь до JSONL файла
 
-    Returns
-    -------
-    List[Dict[str, Any]]
-        Список записей, по одной на строку
-    """
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"JSONL not found: {p}")
+#     Returns
+#     -------
+#     List[Dict[str, Any]]
+#         Список записей, по одной на строку
+#     """
+#     p = Path(path)
+#     if not p.exists():
+#         raise FileNotFoundError(f"JSONL not found: {p}")
 
-    rows: list[dict[str, Any]] = []
-    with p.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-    return rows
+#     rows: list[dict[str, Any]] = []
+#     with p.open("r", encoding="utf-8") as f:
+#         for line in f:
+#             line = line.strip()
+#             if not line:
+#                 continue
+#             rows.append(json.loads(line))
+#     return rows
 
 
 def document_from_record(row: dict[str, Any]) -> Document:
@@ -52,12 +52,12 @@ def document_from_record(row: dict[str, Any]) -> Document:
     )
 
 
-def load_documents_from_slice(path: str | Path) -> list[Document]:
-    """Load a raw or normalized JSONL slice, optionally gzip-compressed."""
-    path = Path(path)
-    opener = gzip.open if path.suffix == ".gz" else open
-    with opener(path, "rt", encoding="utf-8") as stream:
-        return [document_from_record(json.loads(line)) for line in stream if line.strip()]
+# def load_documents_from_slice(path: str | Path) -> list[Document]:
+#     """Load a raw or normalized JSONL slice, optionally gzip-compressed."""
+#     path = Path(path)
+#     opener = gzip.open if path.suffix == ".gz" else open
+#     with opener(path, "rt", encoding="utf-8") as stream:
+#         return [document_from_record(json.loads(line)) for line in stream if line.strip()]
 
 
 def read_docs(documents):

@@ -5,7 +5,7 @@ import httpx
 import numpy as np
 from rag.ingest.chunking import chunk_documents
 from rag.embeddings.st import SentenceTransformerEmbeddings
-from rag.cli.retrieve_cli import build_retrievers
+from rag.retrieve_cli import build_retrievers
 from rag.ingest.load_dataset import read_docs
 from script.embeddings import embeddings
 

@@ -11,7 +11,7 @@ from rag.index.contracts import RetrievedChunk
 from rag.index.faiss_dense import DenseRetriever, build_faiss_index
 from rag.index.hybrid import HybridRetriever
 from rag.ingest.chunking import chunk_documents
-from rag.ingest.load_dataset import load_documents_from_slice
+# from rag.ingest.load_dataset import load_documents_from_slice
 from rag.ingest.schema import Chunk
 from rag.log_config import setup_logging
 
@@ -81,29 +81,29 @@ def build_retrievers(
     return retrievers
 
 
-def load_and_prepare_chunks(
-    slice_path: Path, chunk_size_chars: int, overlap_chars: int
-) -> list[Chunk]:
-    """
-    Загрузка среза, нормализация и чанкинг.
+# def load_and_prepare_chunks(
+#     slice_path: Path, chunk_size_chars: int, overlap_chars: int
+# ) -> list[Chunk]:
+#     """
+#     Загрузка среза, нормализация и чанкинг.
 
-    Parameters
-    ----------
-    slice_path : Path
-        Путь до gzipped JSONL
-    chunk_size_chars : int
-        Размер чанка
-    overlap_chars : int
-        Перекрытие чанков
+#     Parameters
+#     ----------
+#     slice_path : Path
+#         Путь до gzipped JSONL
+#     chunk_size_chars : int
+#         Размер чанка
+#     overlap_chars : int
+#         Перекрытие чанков
 
-    Returns
-    -------
-    List[Chunk]
-        Список чанков
-    """
-    docs = load_documents_from_slice(slice_path)
-    chunks = chunk_documents(docs, chunk_size_chars=chunk_size_chars, overlap_chars=overlap_chars)
-    return chunks
+#     Returns
+#     -------
+#     List[Chunk]
+#         Список чанков
+#     """
+#     docs = load_documents_from_slice(slice_path)
+#     chunks = chunk_documents(docs, chunk_size_chars=chunk_size_chars, overlap_chars=overlap_chars)
+#     return chunks
 
 
 def run_retrieval(args: argparse.Namespace) -> None:
