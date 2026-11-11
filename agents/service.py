@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from agents.config import Settings, get_settings
 from agents.graph import build_graph
-from agents.rag import RagClient
+from agents.rag import RagClient, SearchFn
 from agents.state import AgentResult
 
 __all__ = ["AgentService"]
@@ -27,22 +27,26 @@ class AgentService:
     Parameters
     ----------
     retrievers:
-        Готовые retriever'ы RAG, построенные один раз при старте.
+        Готовые retriever'ы RAG, построенные снаружи до старта агента.
     settings:
         Настройки агента. Если не переданы, читаются из окружения.
     checkpointer:
         Хранилище состояния диалогов. По умолчанию ``MemorySaver``.
+    search_fn:
+        Функция поиска для подмены в тестах. По умолчанию используется
+        ``rag.rag_pipeline.search_chunks``.
     """
 
     def __init__(
         self,
-        retrievers: dict[str, Any],
+        retrievers: Any,
         settings: Settings | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
+        search_fn: SearchFn | None = None,
     ) -> None:
         self._settings = settings or get_settings()
         self._graph = build_graph(
-            RagClient(retrievers),
+            RagClient(retrievers, search_fn=search_fn),
             self._settings,
             checkpointer or MemorySaver(),
         )
@@ -60,7 +64,7 @@ class AgentService:
         Returns
         -------
         AgentResult
-            Ответ и список источников.
+            Ответ агента.
         """
         if not thread_id:
             raise ValueError("thread_id не может быть пустым")
@@ -82,10 +86,7 @@ class AgentService:
         if not answer:
             answer = "Не удалось сформировать ответ."
 
-        return AgentResult(
-            answer=answer,
-            sources=result.get("sources") or [],
-        )
+        return AgentResult(answer=answer)
 
     def answer(self, thread_id: str, question: str) -> str:
         """Синхронная обёртка над :meth:`aanswer`.

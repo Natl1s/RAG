@@ -3,44 +3,45 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from agents.config import Settings
 from agents.service import AgentService
-from rag.index.contracts import RetrievedChunk
 
 
-class FakeRetriever:
-    def retrieve(self, query: str, k: int) -> list[RetrievedChunk]:
-        return [
-            RetrievedChunk(
-                doc_id="doc-1",
-                chunk_id="chunk-1",
-                text="Текст документа",
-                metadata={
-                    "title": "Заголовок",
-                    "doc_type": "Закон",
-                    "docdate": "01.01.2024",
-                },
-                score=0.9,
-            )
-        ]
+class FakeSearch:
+    def __init__(self, context: str) -> None:
+        self.context = context
+        self.calls: list[tuple[str, object]] = []
+
+    def __call__(self, query: str, retrievers: object) -> str:
+        self.calls.append((query, retrievers))
+        return self.context
 
 
 class AgentServiceTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.service = AgentService({"hybrid": FakeRetriever()})
+        self.retrievers = object()
+        self.search = FakeSearch("Источник: doc-1\nТекст: Текст документа")
+        self.service = AgentService(
+            self.retrievers,
+            settings=Settings(llm_base_url="", llm_api_key="", llm_model=""),
+            search_fn=self.search,
+        )
 
     def test_sync_answer_returns_rag_context(self) -> None:
         answer = self.service.answer("u-1", "налоги")
 
-        self.assertIn("[Источник 1]", answer)
-        self.assertIn("text: Текст документа", answer)
+        self.assertIn("Источник: doc-1", answer)
+        self.assertIn("Текст: Текст документа", answer)
 
-    def test_async_answer_returns_sources(self) -> None:
+    def test_async_answer_returns_result(self) -> None:
         result = asyncio.run(self.service.aanswer("u-1", "налоги"))
 
-        self.assertIn("text: Текст документа", result.answer)
-        self.assertEqual(len(result.sources), 1)
-        self.assertEqual(result.sources[0]["doc_id"], "doc-1")
-        self.assertEqual(result.sources[0]["chunk_id"], "chunk-1")
+        self.assertIn("Текст: Текст документа", result.answer)
+
+    def test_search_receives_question_and_retrievers(self) -> None:
+        asyncio.run(self.service.aanswer("u-1", "налоги"))
+
+        self.assertEqual(self.search.calls, [("налоги", self.retrievers)])
 
     def test_memory_keeps_thread_history(self) -> None:
         asyncio.run(self.service.aanswer("u-1", "первый"))
