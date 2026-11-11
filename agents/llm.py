@@ -41,6 +41,23 @@ _LLM_TIMEOUT_SECONDS = 30.0
 _LLM_MAX_RETRIES = 1
 
 
+def _format_context(context: Any) -> str:
+    """Привести RAG-контекст к тексту для промпта."""
+    if not context:
+        return ""
+    if isinstance(context, str):
+        return context.strip()
+
+    parts: list[str] = []
+    for item in context:
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            doc_id, text = item
+            parts.append(f"doc_id: {doc_id}\n{str(text).strip()}")
+        else:
+            parts.append(str(item).strip())
+    return "\n\n".join(part for part in parts if part)
+
+
 def _normalize_text(value: object) -> str:
     """Привести содержимое ответа модели к строке."""
     if value is None:
@@ -199,14 +216,15 @@ def _clean_rewrite(value: str) -> str:
 
 async def judge_relevance(
     query: str,
-    context: str,
+    context: str | list[tuple[str, str]] | None,
     *,
     settings: Settings,
 ) -> GradeResult:
     """Оценить, достаточно ли контекста для ответа."""
+    context_text = _format_context(context)
     messages = [
         SystemMessage(content=JUDGE_SYSTEM_PROMPT),
-        HumanMessage(content=judge_user_prompt(query, context)),
+        HumanMessage(content=judge_user_prompt(query, context_text)),
     ]
     raw = await _chat_completion(
         settings=settings,
@@ -223,7 +241,7 @@ async def judge_relevance(
         logger.warning("LLM-судья вернула ответ не в JSON-формате. Используется эвристика.")
 
     return GradeResult(
-        is_relevant=bool((context or "").strip()),
+        is_relevant=bool(context_text),
         reason="LLM недоступна, использована эвристика по наличию контекста.",
     )
 
@@ -260,7 +278,7 @@ async def rewrite_query(
 
 async def generate_answer(
     query: str,
-    context: str,
+    context: str | list[tuple[str, str]] | None,
     history: str = "",
     *,
     settings: Settings,
@@ -269,7 +287,7 @@ async def generate_answer(
 
     Если LLM недоступна, возвращает сам RAG-контекст.
     """
-    normalized_context = (context or "").strip()
+    normalized_context = _format_context(context)
     if not normalized_context:
         return f"По запросу «{query}» ничего не найдено."
 

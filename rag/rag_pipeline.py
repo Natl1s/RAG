@@ -54,7 +54,7 @@ def initialaze_rag(path_to_docs, flag: str = "local", client: httpx.Client = Non
     print("Индексы построены:", list(retrievers.keys()))
     return retrievers
 
-def search_chunks(query: str, retrievers):
+def search_chunks(query: str, retrievers) -> list[tuple[str, str]]:
     results = retrievers["hybrid"].retrieve(query, k=5)
     context = [(str(result.doc_id), str(result.text)) for result in results]
     return context
