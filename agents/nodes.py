@@ -15,9 +15,9 @@ from langchain_core.messages import AIMessage, AnyMessage
 from agents.config import Settings
 from agents.llm import generate_answer, judge_relevance, rewrite_query
 from agents.prompts import answer_user_prompt, judge_user_prompt, rewrite_user_prompt
-from agents.rag import RagClient
+# from agents.rag import RagClient
 from agents.state import AgentState
-
+from rag.rag_pipeline import RAG
 __all__ = [
     "make_generate_node",
     "make_grade_node",
@@ -58,12 +58,12 @@ def _format_history(messages: list[AnyMessage], limit: int) -> str:
     return "\n".join(lines)
 
 
-def make_retrieve_node(rag: RagClient) -> Node:
+def make_retrieve_node(rag: RAG) -> Node:
     """Создать узел поиска в RAG."""
 
     async def retrieve(state: AgentState) -> dict[str, Any]:
         query = state.get("search_query") or state.get("query") or ""
-        context = await asyncio.to_thread(rag.search, query)
+        context = await asyncio.to_thread(rag.search_chunks, query)
         return {"context": context}
 
     return retrieve

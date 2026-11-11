@@ -11,22 +11,20 @@ from typing import Any
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agents.config import Settings
-from agents.rag import SearchFn
+# from agents.rag import SearchFn
 from agents.service import AgentService
 
 __all__ = ["build_local_service"]
 
 
 def build_local_service(
-    retrievers: Any,
+    rag_client: Any,
     settings: Settings | None = None,
     checkpointer: BaseCheckpointSaver | None = None,
-    search_fn: SearchFn | None = None,
 ) -> AgentService:
     """Собрать агент, подключённый к готовому RAG-индексу."""
     return AgentService(
-        retrievers,
+        rag_client,
         settings=settings,
         checkpointer=checkpointer,
-        search_fn=search_fn,
     )

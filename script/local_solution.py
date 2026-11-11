@@ -26,6 +26,8 @@ from dotenv import load_dotenv
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(_REPO_ROOT / ".env", override=False)
 
+from agents.service import AgentService
+from agents.bootstrap import build_local_service
 
 def env(name: str, default: str = "") -> str:
     value = os.getenv(name, "").strip()
@@ -45,33 +47,13 @@ def env_float(name: str, default: float) -> float:
     except ValueError:
         return default
 
-
 # Настройки приходят с платформы. В ZIP НЕ НУЖНО класть секреты и .env.
-# DATA_DIR = Path('./dataset')
 DATA_DIR = Path(env("DATA_DIR", "data"))
-# API_BASE = (env("LLM_BASE_URL") or env("BASE_URL") or env("OPENAI_BASE_URL")).rstrip("/")
-# LLM_KEY = env("LLM_API_KEY") or env("OPENAI_API_KEY")
-# EMBED_KEY = env("EMBEDDER_API_KEY") or LLM_KEY
-# RERANK_KEY = env("RERANKER_API_KEY") or LLM_KEY
-
-# LLM_MODEL = env("LLM_MODEL") or env("GEN_MODEL") or env("OPENAI_MODEL", "deepseek/deepseek-v4.1-flash")
-# EMB_MODEL = env("EMB_MODEL", "baai/bge-m3")
-# RERANKER_MODEL = env("RERANKER_MODEL", "cohere/rerank-5-fast")
-
-# TOP_K = env_int("TOP_K", 4, 1, 8)
-# RERANKER_TOP_N = env_int("RERANKER_TOP_N", 2, 1, 5)
-# MAX_TOKENS = env_int("MAX_TOKENS", 1024, 128, 8192)
 MAX_WORKERS = env_int("MAX_WORKERS", 2, 1, 8)
-# TEMPERATURE = env_float("TEMPERATURE", 0.0)
-# CHUNKER = env("CHUNKER", "common")
 
 # SNIPPET_CHARS = 1200
 FALLBACK = "Не удалось получить ответ."
 WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё]{4,}")
-
-
-def words(text: str) -> set[str]:
-    return set(WORD_RE.findall(text.lower().replace("ё", "е")))
 
 
 def find_file(*names: str) -> Path:
@@ -129,68 +111,20 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
     return documents
 
 
-# def snippet(text: str) -> str:
-#     # Минимальный пример применения CHUNKER, не полноценное разбиение на чанки.
-#     piece = text[:SNIPPET_CHARS]
-#     if CHUNKER == "common" and len(text) > SNIPPET_CHARS:
-#         boundary = piece.rfind("\n")
-#         if boundary > SNIPPET_CHARS // 2:
-#             piece = piece[:boundary]
-#     return piece.strip()
-
-
-# def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
-#     if not key:
-#         raise ValueError("На платформе отсутствует API-ключ")
-#     response = client.post(
-#         API_BASE + path,
-#         headers={"Authorization": "Bearer " + key},
-#         json=payload,
-#     )
-#     response.raise_for_status()
-#     return response.json()
-
-
-# def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
-#     """Пример вызова EMB_MODEL через POST /embeddings."""
-#     result = post(client, "/embeddings", EMBED_KEY, {
-#         "model": EMB_MODEL,
-#         "input": texts,
-#         "encoding_format": "float",
-#     })
-#     vectors: list[list[float] | None] = [None] * len(texts)
-#     for position, item in enumerate(result["data"]):
-#         index = int(item.get("index", position))
-#         if index < 0 or index >= len(texts):
-#             raise ValueError("Некорректный индекс embedding")
-#         vector = item["embedding"]
-#         norm = math.sqrt(sum(float(x) ** 2 for x in vector)) or 1.0
-#         vectors[index] = [float(x) / norm for x in vector]
-#     if any(v is None for v in vectors):
-#         raise ValueError("Получены не все embeddings")
-#     return vectors  # type: ignore[return-value]
-
-def select_documents(question: str, rag: RAG) -> list[tuple[str, str]]:
-    return rag.search_chunks(question)
-
-
-def generate(docs: list[tuple[str, str]]) -> str:
-    return "\n\n".join(f"Источник: {name}\n{text}" for name, text in docs) or FALLBACK
-
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
 
-    rag = RAG(RAGConfig())
-    rag.build(documents)
+    rag_client = RAG(RAGConfig())
+    rag_client.build(documents)
+    service = build_local_service(rag_client)
+
     def work(position: int, question: str) -> tuple[int, str]:
         try:
-            selected = select_documents(question, rag)
-            return position, generate(selected)
+            return position, service.answer(str(position), question)
         except Exception as exc:
             print(f"Ошибка вопроса {position}: {type(exc).__name__}: {exc}", file=sys.stderr)
             return position, FALLBACK
-
     
     answers = [FALLBACK] * len(questions)
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
@@ -207,7 +141,6 @@ def main() -> None:
         for i, (qid, _) in enumerate(questions):
             writer.writerow([qid, answers[i]])
     print(f"Создан submission.csv: {len(questions)} ответов", flush=True)
-
 
 if __name__ == "__main__":
     main()
