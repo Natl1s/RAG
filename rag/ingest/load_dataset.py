@@ -5,8 +5,6 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-import pyarrow.parquet as pq
-
 from rag.ingest.schema import Document
 from rag.ingest.preprocess import normalize_ruslawod_record
 from rag.log_config import setup_logging
@@ -60,6 +58,13 @@ def load_documents_from_slice(path: str | Path) -> list[Document]:
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "rt", encoding="utf-8") as stream:
         return [document_from_record(json.loads(line)) for line in stream if line.strip()]
+
+
+def read_docs(documents):
+    return [
+        Document(doc_id=name, title=name, text=text)
+        for name, text in documents
+    ]
 
 
 def load_documents(data_dir: Path, limit: int = 1000) -> list[Document]:

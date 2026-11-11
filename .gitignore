@@ -13,7 +13,8 @@ htmlcov/
 .DS_Store
 *.local
 *.log
-
+env-creation.py
+submission/
 # Временные артефакты тестовых прогонов
 .pnpm/
 .pnpm-cache/
@@ -37,3 +38,12 @@ dataset/index/*
 dataset/data/*
 dataset/*.ipynb
 data
+
+# Временные файлы для разработки
+per.py
+models
+qdrant_storage/
+dataset/questions.csv
+submission.csv
+rag_review.html
+rag/for_script
