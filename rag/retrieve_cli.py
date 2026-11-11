@@ -105,58 +105,58 @@ def build_retrievers(
 #     return chunks
 
 
-def run_retrieval(args: argparse.Namespace) -> None:
-    """
-    Запуск retrieval по CLI аргументам.
+# def run_retrieval(args: argparse.Namespace) -> None:
+#     """
+#     Запуск retrieval по CLI аргументам.
 
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Аргументы CLI
-    """
-    setup_logging()
-    start = time.time()
-    slice_path = Path(args.slice_path)
-    logger.info("Чтение среза из %s", slice_path)
-    chunks = load_and_prepare_chunks(slice_path, args.chunk_size_chars, args.overlap_chars)
-    logger.info("Готово: документов=%s, чанков=%s", len(set(c.doc_id for c in chunks)), len(chunks))
+#     Parameters
+#     ----------
+#     args : argparse.Namespace
+#         Аргументы CLI
+#     """
+#     setup_logging()
+#     start = time.time()
+#     slice_path = Path(args.slice_path)
+#     logger.info("Чтение среза из %s", slice_path)
+#     chunks = load_and_prepare_chunks(slice_path, args.chunk_size_chars, args.overlap_chars)
+#     logger.info("Готово: документов=%s, чанков=%s", len(set(c.doc_id for c in chunks)), len(chunks))
 
-    use_dense = args.retriever in {"dense", "hybrid"}
-    use_hybrid = args.retriever == "hybrid"
-    embedder = None
-    if use_dense:
-        from rag.embeddings.st import SentenceTransformerEmbeddings
+#     use_dense = args.retriever in {"dense", "hybrid"}
+#     use_hybrid = args.retriever == "hybrid"
+#     embedder = None
+#     if use_dense:
+#         from rag.embeddings.st import SentenceTransformerEmbeddings
 
-        embedder = SentenceTransformerEmbeddings(
-            model_name=args.embedding_model,
-            batch_size=args.embedding_batch_size,
-        )
+#         embedder = SentenceTransformerEmbeddings(
+#             model_name=args.embedding_model,
+#             batch_size=args.embedding_batch_size,
+#         )
 
-    retrievers = build_retrievers(
-        chunks,
-        use_dense=use_dense,
-        use_hybrid=use_hybrid,
-        embedder=embedder,
-        min_chunk_chars=args.min_chunk_chars,
-    )
-    if args.retriever not in retrievers:
-        raise ValueError(f"Retriever '{args.retriever}' не поддерживается")
+#     retrievers = build_retrievers(
+#         chunks,
+#         use_dense=use_dense,
+#         use_hybrid=use_hybrid,
+#         embedder=embedder,
+#         min_chunk_chars=args.min_chunk_chars,
+#     )
+#     if args.retriever not in retrievers:
+#         raise ValueError(f"Retriever '{args.retriever}' не поддерживается")
 
-    retriever = retrievers[args.retriever]
-    logger.info("Retrieval: retriever=%s, query='%s', k=%s", args.retriever, args.query, args.k)
-    results: list[RetrievedChunk] = retriever.retrieve(args.query, k=args.k)
-    elapsed = time.time() - start
-    logger.info("Retrieval завершён за %.2fs, найдено %s", elapsed, len(results))
+#     retriever = retrievers[args.retriever]
+#     logger.info("Retrieval: retriever=%s, query='%s', k=%s", args.retriever, args.query, args.k)
+#     results: list[RetrievedChunk] = retriever.retrieve(args.query, k=args.k)
+#     elapsed = time.time() - start
+#     logger.info("Retrieval завершён за %.2fs, найдено %s", elapsed, len(results))
 
-    for rank, item in enumerate(results, start=1):
-        heading = item.metadata.get("headingIPS") or item.metadata.get("heading") or ""
-        docdate = item.metadata.get("docdate") or item.metadata.get("docdateIPS") or ""
-        doc_type = item.metadata.get("doc_type") or item.metadata.get("doc_typeIPS") or ""
-        snippet = (item.text or "")[:200].replace("\n", " ")
-        print(
-            f"{rank:02d}. score={item.score:.4f} doc_id={item.doc_id} chunk_id={item.chunk_id} "
-            f"doc_type={doc_type} docdate={docdate} heading={heading} text='{snippet}'"
-        )
+#     for rank, item in enumerate(results, start=1):
+#         heading = item.metadata.get("headingIPS") or item.metadata.get("heading") or ""
+#         docdate = item.metadata.get("docdate") or item.metadata.get("docdateIPS") or ""
+#         doc_type = item.metadata.get("doc_type") or item.metadata.get("doc_typeIPS") or ""
+#         snippet = (item.text or "")[:200].replace("\n", " ")
+#         print(
+#             f"{rank:02d}. score={item.score:.4f} doc_id={item.doc_id} chunk_id={item.chunk_id} "
+#             f"doc_type={doc_type} docdate={docdate} heading={heading} text='{snippet}'"
+#         )
 
 
 def parse_args() -> argparse.Namespace:
@@ -217,14 +217,3 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
-def main() -> None:
-    """
-    CLI точка входа.
-    """
-    args = parse_args()
-    run_retrieval(args)
-
-
-if __name__ == "__main__":
-    main()
