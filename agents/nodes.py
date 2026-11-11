@@ -58,16 +58,13 @@ def _format_history(messages: list[AnyMessage], limit: int) -> str:
     return "\n".join(lines)
 
 
-def make_retrieve_node(rag: RagClient, settings: Settings) -> Node:
+def make_retrieve_node(rag: RagClient) -> Node:
     """Создать узел поиска в RAG."""
 
     async def retrieve(state: AgentState) -> dict[str, Any]:
         query = state.get("search_query") or state.get("query") or ""
-        chunks = await asyncio.to_thread(rag.search, query, settings.rag_k)
-        return {
-            "context": rag.format_context(chunks),
-            "sources": rag.to_sources(chunks),
-        }
+        context = await asyncio.to_thread(rag.search, query)
+        return {"context": context}
 
     return retrieve
 

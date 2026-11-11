@@ -31,7 +31,7 @@ def build_graph(
     """
     graph = StateGraph(AgentState)
 
-    graph.add_node("retrieve", make_retrieve_node(rag, settings))
+    graph.add_node("retrieve", make_retrieve_node(rag))
     graph.add_node("grade", make_grade_node(settings))
     graph.add_node("generate", make_generate_node(settings))
 

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Literal, TypedDict
 
 from langchain_core.messages import AnyMessage
@@ -19,20 +19,8 @@ __all__ = [
     "AgentState",
     "DoneEvent",
     "GradeResult",
-    "Source",
     "TokenEvent",
 ]
-
-
-class Source(TypedDict):
-    """Источник, который показываем пользователю вместе с ответом."""
-
-    doc_id: str
-    chunk_id: str
-    heading: str
-    doc_type: str
-    doc_date: str
-    score: float
 
 
 class AgentState(TypedDict, total=False):
@@ -50,7 +38,6 @@ class AgentState(TypedDict, total=False):
     query: str
     search_query: str
     context: str
-    sources: list[Source]
     is_relevant: bool
     relevance_reason: str
     rewrite_count: int
@@ -74,7 +61,6 @@ class AgentResult:
     """Итоговый ответ агента."""
 
     answer: str
-    sources: list[Source] = field(default_factory=list)
 
 
 class TokenEvent(TypedDict):
@@ -89,7 +75,6 @@ class DoneEvent(TypedDict):
 
     type: Literal["done"]
     answer: str
-    sources: list[Source]
 
 
 AgentEvent = TokenEvent | DoneEvent

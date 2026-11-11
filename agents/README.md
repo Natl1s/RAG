@@ -1,26 +1,40 @@
 # Как запускать
 
-в командной строке
+## Настройка LLM (локально)
+
+1. Скопируйте шаблон окружения и ограничьте права на файл:
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
+2. Впишите свой `LLM_API_KEY` в `.env`. Ключ SiliconFlow можно получить здесь:
+   https://cloud.siliconflow.com/me/account/ak
+3. Файл `.env` не коммитится и не попадает в Docker-образ. У каждого
+   разработчика свой локальный `.env`.
+4. Если ключ не задан, приложение работает на RAG-fallback и пишет
+   предупреждение в консоль.
+
+Проверить настройки без вывода ключа:
 ```bash
-EMBEDDING_ALLOW_DOWNLOAD=true .venv/bin/python -m agents.run u-1 "Какие налоги платит ИП?"
+.venv/bin/python -c "from agents.config import get_settings; s=get_settings(); print('base_url:', s.llm_base_url, 'model:', s.llm_model, 'key_set:', bool(s.llm_api_key))"
 ```
 
-Или из Python:
+## Использование
+
+RAG-индекс строится снаружи до запуска агента. Агент не создаёт индекс и не
+импортирует внутренние модули RAG: он получает готовые `retrievers` и
+обращается к `rag.rag_pipeline.search_chunks`.
+
 ```python
-from agents.service import AgentService
 from agents.bootstrap import build_local_service
 
-service = build_local_service(limit=100)
+# retrievers построены внешним кодом/сервисом
+service = build_local_service(retrievers)
 print(service.answer("u-1", "Какие налоги платит ИП?"))
 ```
 
-### Тесты:
-```
-.venv/bin/python -m unittest discover -s agents/tests -v
-```
-Интеграционный тест:
+### Тесты
 
-```
-RUN_RAG_INTEGRATION=1 EMBEDDING_ALLOW_DOWNLOAD=true \
-  .venv/bin/python -m unittest agents.tests.test_integration -v
+```bash
+.venv/bin/python -m unittest discover -s agents/tests -v
 ```
