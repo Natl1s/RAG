@@ -48,3 +48,4 @@ dataset/questions.csv
 submission.csv
 rag_review.html
 rag/for_script
+.coverage

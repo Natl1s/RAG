@@ -18,7 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from pathlib import Path
-from rag.rag_pipeline import initialaze_rag, search_chunks
+from rag.config import RAGConfig
+from rag.rag_pipeline import RAG
+# import httpx
 from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +58,7 @@ WORD_RE = re.compile(r"[0-9A-Za-zА-Яа-яЁё]{4,}")
 
 def find_file(*names: str) -> Path:
     print(DATA_DIR)
-    for root in (DATA_DIR, Path(__file__).resolve().parent / DATA_DIR, Path.cwd()):
+    for root in (DATA_DIR, Path(__file__).resolve().parent / DATA_DIR, Path.cwd(), _REPO_ROOT / "dataset"):
         for name in names:
             path = root / name
             if path.is_file():
@@ -109,18 +111,69 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
     return documents
 
 
+# def snippet(text: str) -> str:
+#     # Минимальный пример применения CHUNKER, не полноценное разбиение на чанки.
+#     piece = text[:SNIPPET_CHARS]
+#     if CHUNKER == "common" and len(text) > SNIPPET_CHARS:
+#         boundary = piece.rfind("\n")
+#         if boundary > SNIPPET_CHARS // 2:
+#             piece = piece[:boundary]
+#     return piece.strip()
+
+
+# def post(client: httpx.Client, path: str, key: str, payload: dict) -> dict:
+#     if not key:
+#         raise ValueError("На платформе отсутствует API-ключ")
+#     response = client.post(
+#         API_BASE + path,
+#         headers={"Authorization": "Bearer " + key},
+#         json=payload,
+#     )
+#     response.raise_for_status()
+#     return response.json()
+
+
+# def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
+#     """Пример вызова EMB_MODEL через POST /embeddings."""
+#     result = post(client, "/embeddings", EMBED_KEY, {
+#         "model": EMB_MODEL,
+#         "input": texts,
+#         "encoding_format": "float",
+#     })
+#     vectors: list[list[float] | None] = [None] * len(texts)
+#     for position, item in enumerate(result["data"]):
+#         index = int(item.get("index", position))
+#         if index < 0 or index >= len(texts):
+#             raise ValueError("Некорректный индекс embedding")
+#         vector = item["embedding"]
+#         norm = math.sqrt(sum(float(x) ** 2 for x in vector)) or 1.0
+#         vectors[index] = [float(x) / norm for x in vector]
+#     if any(v is None for v in vectors):
+#         raise ValueError("Получены не все embeddings")
+#     return vectors  # type: ignore[return-value]
+
+def select_documents(question: str,
+                     retrievers) -> list[tuple[str, str]]:
+    
+    return search_chunks(question, retrievers)
+
+
+def generate(docs: list[tuple[str, str]]) -> str:
+    return docs
+
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
 
-    retrievers = initialaze_rag(documents)
-    service = build_local_service(retrievers)
+    rag = RAG(RAGConfig())
+    rag.build(documents)
+    # service = build_local_service(rag.retrievers)
 
     def work(position: int, question: str) -> tuple[int, str]:
         try:
             return position, service.answer(str(position), question)
         except Exception as exc:
-            print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)
+            print(f"Ошибка вопроса {position}: {type(exc).__name__}: {exc}", file=sys.stderr)
             return position, FALLBACK
     
     answers = [FALLBACK] * len(questions)

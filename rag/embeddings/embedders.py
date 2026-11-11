@@ -8,12 +8,117 @@ from pathlib import Path
 import numpy as np
 from huggingface_hub import snapshot_download
 from sentence_transformers import SentenceTransformer
+from script.embeddings import embeddings
 
-from rag.embeddings.config import get_default_model
+# from rag.embeddings.config import get_default_model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "intfloat/multilingual-e5-base"
+DEFAULT_MODEL = "models/multilingual-e5-base"
+
+
+class SentenceTransformerEmbeddings:
+    """
+    Обёртка над SentenceTransformer для расчёта эмбеддингов запросов и документов.
+
+    Поддерживает e5-префиксы (query:/passage:), батчинг и L2-нормализацию.
+    """
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        *,
+        batch_size: int | None = None,
+        normalize: bool = True,
+    ) -> None:
+        """
+        Инициализация эмбеддера.
+
+        Parameters
+        ----------
+        model_name : str, optional
+            Имя модели sentence-transformers (по умолчанию intfloat/multilingual-e5-base)
+        batch_size : int, optional
+            Размер батча при кодировании (по умолчанию 32 или EMBEDDING_BATCH_SIZE)
+        normalize : bool, optional
+            Применять ли L2-нормализацию к вектору
+        """
+        self.model_name = model_name or os.getenv("EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL_DEFAULT") or  "models/multilingual-e5-small"
+        # or get_default_model()
+        self.batch_size = batch_size or int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+        self.normalize = normalize
+        self._model: SentenceTransformer | None = None
+
+    @property
+    def model(self) -> SentenceTransformer:
+        """
+        Lazy-загрузка модели с кешированием.
+
+        Returns
+        -------
+        SentenceTransformer
+            Экземпляр модели
+        """
+        if self._model is None:
+            self._model = _load_model(self.model_name)
+        return self._model
+
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        vectors = self.model.encode(
+            texts,
+            batch_size=self.batch_size,
+            convert_to_numpy=True,
+            normalize_embeddings=self.normalize,
+            show_progress_bar=False,
+        )
+        return vectors.astype(np.float32)
+
+    def encode_passages(self, texts: list[str]) -> np.ndarray:
+        """
+        Кодирование чанков/документов с e5-префиксом passage.
+
+        Parameters
+        ----------
+        texts : list[str]
+            Список текстов
+
+        Returns
+        -------
+        np.ndarray
+            Матрица эмбеддингов
+        """
+        prefixed = [f"passage: {t}" for t in texts]
+        return self._encode(prefixed)
+
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        """
+        Кодирование поисковых запросов с e5-префиксом query.
+
+        Parameters
+        ----------
+        texts : list[str]
+            Список запросов
+
+        Returns
+        -------
+        np.ndarray
+            Матрица эмбеддингов
+        """
+        prefixed = [f"query: {t}" for t in texts]
+        return self._encode(prefixed)
+
+
+class ExternalEmbeddings:
+    def __init__(self, client):
+        self.model_name = "external-embeddings"
+        self.client = client
+
+    def encode_passages(self, texts) -> np.ndarray:
+        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
+
+    def encode_queries(self, texts) -> np.ndarray:
+        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
+
 
 
 def _get_device() -> str:
@@ -78,93 +183,3 @@ def _load_model(model_name: str) -> SentenceTransformer:
             cache_folder=str(cache_path),
             local_files_only=True,
         )
-
-
-class SentenceTransformerEmbeddings:
-    """
-    Обёртка над SentenceTransformer для расчёта эмбеддингов запросов и документов.
-
-    Поддерживает e5-префиксы (query:/passage:), батчинг и L2-нормализацию.
-    """
-
-    def __init__(
-        self,
-        model_name: str | None = None,
-        *,
-        batch_size: int | None = None,
-        normalize: bool = True,
-    ) -> None:
-        """
-        Инициализация эмбеддера.
-
-        Parameters
-        ----------
-        model_name : str, optional
-            Имя модели sentence-transformers (по умолчанию intfloat/multilingual-e5-base)
-        batch_size : int, optional
-            Размер батча при кодировании (по умолчанию 32 или EMBEDDING_BATCH_SIZE)
-        normalize : bool, optional
-            Применять ли L2-нормализацию к вектору
-        """
-        self.model_name = model_name or os.getenv("EMBEDDING_MODEL") or get_default_model()
-        self.batch_size = batch_size or int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
-        self.normalize = normalize
-        self._model: SentenceTransformer | None = None
-
-    @property
-    def model(self) -> SentenceTransformer:
-        """
-        Lazy-загрузка модели с кешированием.
-
-        Returns
-        -------
-        SentenceTransformer
-            Экземпляр модели
-        """
-        if self._model is None:
-            self._model = _load_model(self.model_name)
-        return self._model
-
-    def _encode(self, texts: list[str]) -> np.ndarray:
-        vectors = self.model.encode(
-            texts,
-            batch_size=self.batch_size,
-            convert_to_numpy=True,
-            normalize_embeddings=self.normalize,
-            show_progress_bar=False,
-        )
-        return vectors.astype(np.float32)
-
-    def encode_passages(self, texts: list[str]) -> np.ndarray:
-        """
-        Кодирование чанков/документов с e5-префиксом passage.
-
-        Parameters
-        ----------
-        texts : list[str]
-            Список текстов
-
-        Returns
-        -------
-        np.ndarray
-            Матрица эмбеддингов
-        """
-        prefixed = [f"passage: {t}" for t in texts]
-        return self._encode(prefixed)
-
-    def encode_queries(self, texts: list[str]) -> np.ndarray:
-        """
-        Кодирование поисковых запросов с e5-префиксом query.
-
-        Parameters
-        ----------
-        texts : list[str]
-            Список запросов
-
-        Returns
-        -------
-        np.ndarray
-            Матрица эмбеддингов
-        """
-        prefixed = [f"query: {t}" for t in texts]
-        return self._encode(prefixed)
