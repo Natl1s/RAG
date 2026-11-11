@@ -10,7 +10,6 @@ from rag.index.bm25 import BM25Retriever
 from rag.index.contracts import RetrievedChunk
 from rag.index.faiss_dense import DenseRetriever, build_faiss_index
 from rag.index.hybrid import HybridRetriever
-from rag.ingest.chunking import chunk_documents
 # from rag.ingest.load_dataset import load_documents_from_slice
 from rag.ingest.schema import Chunk
 from rag.log_config import setup_logging

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import gzip
-import json
+# import gzip
+# import json
 import logging
-from pathlib import Path
 from typing import Any
 from rag.ingest.schema import Document
 from rag.ingest.preprocess import normalize_ruslawod_record
-from rag.log_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +38,16 @@ logger = logging.getLogger(__name__)
 #     return rows
 
 
-def document_from_record(row: dict[str, Any]) -> Document:
-    """Read either a raw RusLawOD row or a normalized document."""
-    if "textIPS" in row:
-        return normalize_ruslawod_record(row)
-    return Document(
-        doc_id=str(row.get("doc_id") or "unknown"),
-        title=str(row.get("title") or ""),
-        text=row.get("text") or "",
-        metadata=dict(row.get("metadata") or {}),
-    )
+# def document_from_record(row: dict[str, Any]) -> Document:
+#     """Read either a raw RusLawOD row or a normalized document."""
+#     if "textIPS" in row:
+#         return normalize_ruslawod_record(row)
+#     return Document(
+#         doc_id=str(row.get("doc_id") or "unknown"),
+#         title=str(row.get("title") or ""),
+#         text=row.get("text") or "",
+#         metadata=dict(row.get("metadata") or {}),
+#     )
 
 
 # def load_documents_from_slice(path: str | Path) -> list[Document]:
@@ -67,26 +65,26 @@ def read_docs(documents):
     ]
 
 
-def load_documents(data_dir: Path, limit: int = 1000) -> list[Document]:
-    """Load and normalize up to limit nonempty documents from Parquet."""
-    docs: list[Document] = []
-    if limit <= 0:
-        return docs
+# def load_documents(data_dir: Path, limit: int = 1000) -> list[Document]:
+#     """Load and normalize up to limit nonempty documents from Parquet."""
+#     docs: list[Document] = []
+#     if limit <= 0:
+#         return docs
 
-    parquet_files = sorted(data_dir.glob("*.parquet"))
+#     parquet_files = sorted(data_dir.glob("*.parquet"))
 
-    for file in parquet_files:
-        parquet_file = pq.ParquetFile(file)
+#     for file in parquet_files:
+#         parquet_file = pq.ParquetFile(file)
 
-        for batch in parquet_file.iter_batches(batch_size=100):
-            for row in batch.to_pylist():
-                text = row.get("textIPS") if "textIPS" in row else row.get("text")
+#         for batch in parquet_file.iter_batches(batch_size=100):
+#             for row in batch.to_pylist():
+#                 text = row.get("textIPS") if "textIPS" in row else row.get("text")
 
-                if not isinstance(text, str) or not text.strip():
-                    continue
-                docs.append(document_from_record(row))
+#                 if not isinstance(text, str) or not text.strip():
+#                     continue
+#                 docs.append(document_from_record(row))
                 
-                if len(docs) >= limit:
-                    return docs
+#                 if len(docs) >= limit:
+#                     return docs
 
-    return docs
+#     return docs
