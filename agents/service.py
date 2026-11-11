@@ -19,7 +19,11 @@ from agents.rag import RagClient, SearchFn
 from agents.state import AgentResult
 
 __all__ = ["AgentService"]
+import asyncio
+import sys
 
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 class AgentService:
     """Сервис, который превращает вопрос пользователя в готовый ответ.
