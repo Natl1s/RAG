@@ -6,11 +6,11 @@ from agents.rag import RagClient
 
 
 class FakeSearch:
-    def __init__(self, context: str) -> None:
+    def __init__(self, context: list[tuple[str, str]]) -> None:
         self.context = context
         self.calls: list[tuple[str, object]] = []
 
-    def __call__(self, query: str, retrievers: object) -> str:
+    def __call__(self, query: str, retrievers: object) -> list[tuple[str, str]]:
         self.calls.append((query, retrievers))
         return self.context
 
@@ -18,19 +18,20 @@ class FakeSearch:
 class RagClientTest(unittest.TestCase):
     def test_search_passes_stripped_query_and_retrievers(self) -> None:
         retrievers = object()
-        search = FakeSearch("готовый контекст")
+        context = [("doc-1", "готовый контекст")]
+        search = FakeSearch(context)
         client = RagClient(retrievers, search_fn=search)
 
         result = client.search("  налоги  ")
 
-        self.assertEqual(result, "готовый контекст")
+        self.assertEqual(result, context)
         self.assertEqual(search.calls, [("налоги", retrievers)])
 
     def test_empty_query_returns_empty_without_search(self) -> None:
-        search = FakeSearch("контекст")
+        search = FakeSearch([("doc-1", "контекст")])
         client = RagClient(object(), search_fn=search)
 
-        self.assertEqual(client.search("   "), "")
+        self.assertEqual(client.search("   "), [])
         self.assertEqual(search.calls, [])
 
 

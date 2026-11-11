@@ -8,11 +8,11 @@ from agents.service import AgentService
 
 
 class FakeSearch:
-    def __init__(self, context: str) -> None:
+    def __init__(self, context: list[tuple[str, str]]) -> None:
         self.context = context
         self.calls: list[tuple[str, object]] = []
 
-    def __call__(self, query: str, retrievers: object) -> str:
+    def __call__(self, query: str, retrievers: object) -> list[tuple[str, str]]:
         self.calls.append((query, retrievers))
         return self.context
 
@@ -20,7 +20,7 @@ class FakeSearch:
 class AgentServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.retrievers = object()
-        self.search = FakeSearch("Источник: doc-1\nТекст: Текст документа")
+        self.search = FakeSearch([("doc-1", "Текст документа")])
         self.service = AgentService(
             self.retrievers,
             settings=Settings(llm_base_url="", llm_api_key="", llm_model=""),
@@ -30,13 +30,13 @@ class AgentServiceTest(unittest.TestCase):
     def test_sync_answer_returns_rag_context(self) -> None:
         answer = self.service.answer("u-1", "налоги")
 
-        self.assertIn("Источник: doc-1", answer)
-        self.assertIn("Текст: Текст документа", answer)
+        self.assertIn("doc-1", answer)
+        self.assertIn("Текст документа", answer)
 
     def test_async_answer_returns_result(self) -> None:
         result = asyncio.run(self.service.aanswer("u-1", "налоги"))
 
-        self.assertIn("Текст: Текст документа", result.answer)
+        self.assertIn("Текст документа", result.answer)
 
     def test_search_receives_question_and_retrievers(self) -> None:
         asyncio.run(self.service.aanswer("u-1", "налоги"))

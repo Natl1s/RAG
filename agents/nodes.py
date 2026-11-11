@@ -75,7 +75,7 @@ def make_grade_node(settings: Settings) -> Node:
     async def grade(state: AgentState) -> dict[str, Any]:
         result = await judge_relevance(
             state.get("query") or "",
-            state.get("context") or "",
+            state.get("context") or [],
             settings=settings,
         )
         return {
@@ -112,7 +112,7 @@ def make_generate_node(settings: Settings) -> Node:
 
     async def generate(state: AgentState) -> dict[str, Any]:
         query = state.get("query") or ""
-        context = state.get("context") or ""
+        context = state.get("context") or []
         history = _format_history(
             state.get("messages") or [],
             settings.history_limit,

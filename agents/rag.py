@@ -12,7 +12,7 @@ from typing import Any
 
 __all__ = ["RagClient"]
 
-SearchFn = Callable[[str, Any], str]
+SearchFn = Callable[[str, Any], list[tuple[str, str]]]
 
 
 class RagClient:
@@ -35,10 +35,10 @@ class RagClient:
         self._retrievers = retrievers
         self._search_fn = search_fn
 
-    def search(self, query: str) -> str:
+    def search(self, query: str) -> list[tuple[str, str]]:
         """Получить готовый контекст по запросу."""
         if not query or not query.strip():
-            return ""
+            return []
 
         search_fn = self._search_fn
         if search_fn is None:

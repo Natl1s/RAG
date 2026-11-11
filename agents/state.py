@@ -19,8 +19,11 @@ __all__ = [
     "AgentState",
     "DoneEvent",
     "GradeResult",
+    "RagContext",
     "TokenEvent",
 ]
+
+RagContext = list[tuple[str, str]]
 
 
 class AgentState(TypedDict, total=False):
@@ -37,7 +40,7 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     query: str
     search_query: str
-    context: str
+    context: RagContext
     is_relevant: bool
     relevance_reason: str
     rewrite_count: int
