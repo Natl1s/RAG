@@ -7,24 +7,47 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from agents.config import Settings, get_settings
 from agents.graph import build_graph
-# from agents.rag import RagClient, SearchFn
 from agents.llm import ensure_llm_configured
-from agents.state import AgentResult
+from agents.state import AgentResult, AgentState
 from rag.rag_pipeline import RAG
+
 __all__ = ["AgentService"]
-import asyncio
-import sys
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+_STATE_MODELS = [
+    ("agents.state", name)
+    for name in (
+        "ClarificationRequest",
+        "ContextChunk",
+        "DialogTurn",
+        "PremiseCheck",
+        "QuestionPart",
+        "RetrievalGradeResult",
+        "SubQuery",
+        "SubqueryGrade",
+        "UnderstandResult",
+        "VerificationResult",
+    )
+]
+
+
+def _default_checkpointer() -> MemorySaver:
+    """Создать checkpointer с явным списком моделей состояния."""
+    serde = JsonPlusSerializer(allowed_msgpack_modules=_STATE_MODELS)
+    return MemorySaver(serde=serde)
+
 
 class AgentService:
     """Сервис, который превращает вопрос пользователя в готовый ответ.
@@ -34,15 +57,12 @@ class AgentService:
 
     Parameters
     ----------
-    rag:
-        Готовые retriever'ы RAG, построенные снаружи до старта агента.
+    rag_client:
+        Готовый RAG с методом ``search_chunks``.
     settings:
         Настройки агента. Если не переданы, читаются из окружения.
     checkpointer:
         Хранилище состояния диалогов. По умолчанию ``MemorySaver``.
-    search_fn:
-        Функция поиска для подмены в тестах. По умолчанию используется
-        ``rag.rag_pipeline.search_chunks``.
     """
 
     def __init__(
@@ -56,7 +76,7 @@ class AgentService:
         self._graph = build_graph(
             rag_client,
             self._settings,
-            checkpointer or MemorySaver(),
+            checkpointer or _default_checkpointer(),
         )
 
     async def aanswer(self, thread_id: str, question: str) -> AgentResult:
@@ -67,7 +87,8 @@ class AgentService:
         thread_id:
             Идентификатор диалога. По нему checkpointer хранит историю.
         question:
-            Вопрос пользователя.
+            Вопрос пользователя. Может содержать историю в формате
+            ``Пользователь: ...`` / ``Ассистент: ...``.
 
         Returns
         -------
@@ -81,20 +102,50 @@ class AgentService:
         if not question:
             raise ValueError("Вопрос не может быть пустым")
 
-        state = {
+        state: AgentState = {
             "messages": [HumanMessage(content=question)],
+            "raw_input": question,
             "query": question,
-            "search_query": question,
-            "rewrite_count": 0,
+            "history": [],
+            "last_user_question": question,
+            "standalone_query": "",
+            "in_scope": True,
+            "scope_reason": "",
+            "is_complex": False,
+            "question_parts": [],
+            "premise_check": None,
+            "clarification": None,
+            "subqueries": [],
+            "contexts": [],
+            "coverage": "none",
+            "missing_aspects": [],
+            "retrieval_attempts": 0,
+            "answer_attempts": 0,
+            "total_steps": 0,
+            "used_tokens": 0,
+            "tried_queries": [],
+            "answer_draft": "",
+            "verification": None,
+            "answer": "",
+            "status": "refused",
         }
-        config = {"configurable": {"thread_id": thread_id}}
+        config: dict[str, Any] = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": 30,
+        }
         result = await self._graph.ainvoke(state, config=config)
 
         answer = (result.get("answer") or "").strip()
         if not answer:
             answer = "Не удалось сформировать ответ."
 
-        return AgentResult(answer=answer)
+        status = result.get("status") or "refused"
+        clarification = result.get("clarification")
+        return AgentResult(
+            answer=answer,
+            status=status,
+            clarification=clarification,
+        )
 
     def answer(self, thread_id: str, question: str) -> str:
         """Синхронная обёртка над :meth:`aanswer`.

@@ -6,65 +6,108 @@ from unittest.mock import AsyncMock, patch
 
 from agents.config import Settings
 from agents.service import AgentService
+from rag.index.contracts import RetrievedChunk
 
 
-class FakeSearch:
-    def __init__(self, context: list[tuple[str, str]]) -> None:
-        self.context = context
-        self.calls: list[tuple[str, object]] = []
+def make_chunk() -> RetrievedChunk:
+    return RetrievedChunk(
+        doc_id="doc-1",
+        chunk_id="chunk-1",
+        text="Текст документа про налоги.",
+        metadata={"title": "Договор"},
+        score=0.9,
+    )
 
-    def __call__(self, query: str, retrievers: object) -> list[tuple[str, str]]:
-        self.calls.append((query, retrievers))
-        return self.context
+
+class FakeRAG:
+    def __init__(self, chunks: list[RetrievedChunk]) -> None:
+        self.chunks = chunks
+        self.calls: list[str] = []
+
+    def search_chunks(self, query: str) -> list[RetrievedChunk]:
+        self.calls.append(query)
+        return self.chunks
+
+
+def completion_responses() -> list[str]:
+    return [
+        (
+            '{"standalone_query":"налоги","in_scope":true,'
+            '"scope_reason":"ok","is_complex":false,'
+            '"question_parts":[{"id":1,"text":"налоги","kind":"fact"}],'
+            '"premise_check":{"has_false_premise":false,"false_premise":"",'
+            '"explanation":""},'
+            '"subqueries":[{"id":1,"text":"налоги","part_ids":[1],'
+            '"kind":"fact","required":true}]}'
+        ),
+        (
+            '{"subqueries":[{"subquery_id":1,"coverage":"full",'
+            '"missing_aspects":[],"reason":"ok"}],'
+            '"overall":"full","missing_aspects":[]}'
+        ),
+        "Ответ по документу [doc_id: doc-1]",
+        (
+            '{"verdict":"pass","grounded":true,"answers_question":true,'
+            '"citation_ok":true,"premise_ok":true,"failure_type":"none",'
+            '"missing_evidence":[],"fix_hint":"","reason":"ok"}'
+        ),
+    ]
 
 
 class AgentServiceTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.retrievers = object()
-        self.search = FakeSearch([("doc-1", "Текст документа")])
+        self.rag = FakeRAG([make_chunk()])
         completion = patch(
             "agents.llm._chat_completion",
-            new=AsyncMock(return_value=""),
+            new=AsyncMock(side_effect=completion_responses()),
         )
         self.completion = completion.start()
         self.addCleanup(completion.stop)
+
+        builder = patch(
+            "agents.llm._build_llm",
+            side_effect=AssertionError("real LLM must not be called"),
+        )
+        builder.start()
+        self.addCleanup(builder.stop)
+
         self.service = AgentService(
-            self.retrievers,
+            self.rag,
             settings=Settings(
                 llm_base_url="http://llm.local/v1",
                 llm_api_key="test-key",
                 llm_model="test-model",
             ),
-            search_fn=self.search,
         )
 
     def test_missing_llm_settings_raise_value_error(self) -> None:
         with self.assertRaises(ValueError) as raised:
             AgentService(
-                self.retrievers,
+                self.rag,
                 settings=Settings(llm_base_url="", llm_api_key="", llm_model=""),
-                search_fn=self.search,
             )
 
         self.assertIn("LLM_API_KEY", str(raised.exception))
 
-    def test_sync_answer_returns_rag_context(self) -> None:
+    def test_sync_answer_returns_generated_answer(self) -> None:
         answer = self.service.answer("u-1", "налоги")
 
         self.assertIn("doc-1", answer)
-        self.assertIn("Текст документа", answer)
+        self.assertIn("Ответ по документу", answer)
 
     def test_async_answer_returns_result(self) -> None:
         result = asyncio.run(self.service.aanswer("u-1", "налоги"))
 
-        self.assertIn("Текст документа", result.answer)
+        self.assertIn("Ответ по документу", result.answer)
 
-    def test_search_receives_question_and_retrievers(self) -> None:
+    def test_search_receives_standalone_subquery(self) -> None:
         asyncio.run(self.service.aanswer("u-1", "налоги"))
 
-        self.assertEqual(self.search.calls, [("налоги", self.retrievers)])
+        self.assertEqual(self.rag.calls, ["налоги"])
 
     def test_memory_keeps_thread_history(self) -> None:
+        self.completion.side_effect = completion_responses() + completion_responses()
+
         asyncio.run(self.service.aanswer("u-1", "первый"))
         asyncio.run(self.service.aanswer("u-1", "второй"))
 
