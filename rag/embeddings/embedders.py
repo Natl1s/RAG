@@ -7,14 +7,11 @@ from pathlib import Path
 
 import numpy as np
 from huggingface_hub import snapshot_download
-from sentence_transformers import SentenceTransformer
 from script.embeddings import embeddings
 
 # from rag.embeddings.config import get_default_model
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "models/multilingual-e5-base"
 
 
 class SentenceTransformerEmbeddings:
@@ -43,14 +40,14 @@ class SentenceTransformerEmbeddings:
         normalize : bool, optional
             Применять ли L2-нормализацию к вектору
         """
-        self.model_name = model_name or os.getenv("EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL_DEFAULT") or  "models/multilingual-e5-small"
+        self.model_name = model_name
         # or get_default_model()
         self.batch_size = batch_size or int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
         self.normalize = normalize
-        self._model: SentenceTransformer | None = None
+        self._model = None
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self):
         """
         Lazy-загрузка модели с кешированием.
 
@@ -144,7 +141,8 @@ def _cache_dir() -> Path:
 
 
 @lru_cache(maxsize=4)
-def _load_model(model_name: str) -> SentenceTransformer:
+def _load_model(model_name):
+    from sentence_transformers import SentenceTransformer
     """
     Загружает и кеширует модель sentence-transformers.
 
