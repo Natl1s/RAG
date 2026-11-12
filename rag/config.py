@@ -8,7 +8,7 @@ class RAGConfig:
     chunk_overlap: int = 20
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
-    embedding_model: str = "intfloat/multilingual-e5-small"
+    embedding_model: str = "models/multilingual-e5-small"
     embedding_type: str = "local"  # "local" or "remote"
     batch_size: int = 32
     client: object = None  # httpx.Client for remote embeddings

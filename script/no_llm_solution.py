@@ -22,7 +22,7 @@ from rag.config import RAGConfig
 from rag.rag_pipeline import RAG
 # import httpx
 from dotenv import load_dotenv
-
+from rag.index.contracts import RetrievedChunk
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(_REPO_ROOT / ".env", override=False)
 
@@ -121,13 +121,13 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
     return documents
 
 
-def select_documents(question: str, rag_client) -> list[tuple[str, str]]:
+def select_documents(question: str, rag_client) -> list[RetrievedChunk]:
     return rag_client.search_chunks(question)
 
 
-def generate(docs: list[tuple[str, str]]) -> str:
+def generate(docs: list[RetrievedChunk]) -> str:
     """Пример вызова LLM_MODEL через POST /chat/completions."""
-    context = "\n\n".join(name + "\n" + text for name, text in docs)
+    context = "\n\n".join(chunk.doc_id + "\n" + chunk.metadata["head_doc"] + "\n" + chunk.text for chunk in docs)
     return context
 
 def join(a: list[tuple[str, str]],
@@ -140,12 +140,16 @@ def main() -> None:
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
     index = load_index(Path("dataset/index.csv"))
     documents = join(documents, index)
+
     rag_client = RAG(RAGConfig())
     rag_client.build(documents)
 
     def work(position: int, question: str) -> tuple[int, str]:
         try:
             selected = select_documents(question, rag_client)
+            print(len(selected))
+            selected = rag_client.do_rerank(question, selected)
+            print(len(selected))
             return position, generate(selected)
         except Exception as exc:
             print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)

@@ -22,6 +22,7 @@ from rag.config import RAGConfig
 from rag.rag_pipeline import RAG
 # import httpx
 from dotenv import load_dotenv
+from rag.index.contracts import RetrievedChunk
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(_REPO_ROOT / ".env", override=False)
@@ -77,6 +78,17 @@ def load_questions(path: Path) -> list[tuple[str, str]]:
     return rows
 
 
+def load_index(path: Path) -> list[tuple[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or not {"title", "head"}.issubset(reader.fieldnames):
+            raise ValueError("В index.csv нужны колонки")
+        rows = [(str(r["title"]).strip(), str(r["head"]).strip()) for r in reader]
+    if not rows or any(not qid for qid, _ in rows):
+        raise ValueError("В index.csv отсутствует что-то")
+    return rows
+
+
 def read_docx(raw: bytes) -> str:
     # DOCX — это ZIP с XML. Пример обходится без дополнительной библиотеки.
     with zipfile.ZipFile(io.BytesIO(raw)) as doc:
@@ -110,11 +122,17 @@ def load_documents(path: Path) -> list[tuple[str, str]]:
         raise ValueError("В архиве базы знаний нет читаемых документов")
     return documents
 
+def join(a: list[tuple[str, str]],
+         b: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
+    b_map = dict(b)                      # если в b нет дублей по ключу
+    return [(k, v, b_map[k]) for k, v in a if k in b_map]
 
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
-
+    index = load_index(Path("dataset/index.csv"))
+    documents = join(documents, index)
+    questions = questions[:2]
     rag_client = RAG(RAGConfig())
     rag_client.build(documents)
     service = build_local_service(rag_client)

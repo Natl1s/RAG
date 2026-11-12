@@ -87,7 +87,7 @@ def rerank(client: httpx.Client, question: str, docs: list[RetrievedChunk], top_
     result = post(client, "/rerank", RERANK_KEY, {
         "model": RERANKER_MODEL,
         "query": question,
-        "documents": [chunk.name + "\n" + chunk.head + "\n" + chunk.text for chunk in docs],
+        "documents": [chunk.name + "\n" + chunk.metadata["head_doc"] + "\n" + chunk.text for chunk in docs],
         "top_n": min(top_k, len(docs)),
     })
     items = result.get("results", result.get("data", []))
