@@ -94,7 +94,27 @@ class Settings:
     llm_max_tokens:
         Ограничение длины ответа. ``None`` означает значение провайдера.
     max_rewrites:
-        Сколько раз разрешено переформулировать запрос.
+        Устаревший параметр, оставлен для совместимости окружений.
+    max_subqueries:
+        Максимальное число подзапросов после декомпозиции.
+    max_retrieval_attempts:
+        Сколько раз разрешено выполнять retrieval с переформулировкой.
+    max_answer_attempts:
+        Сколько черновиков ответа разрешено сгенерировать.
+    max_total_llm_calls:
+        Общий предохранитель на число LLM-вызовов в одном ответе.
+    max_rewrite_subqueries_per_round:
+        Сколько проблемных подзапросов разрешено переформулировать за раунд.
+    max_merged_chunks:
+        Максимальное число фрагментов после объединения результатов.
+    max_grade_context_chars:
+        Максимальная длина контекста в символах для промпта-оценщика.
+    max_answer_context_chars:
+        Максимальная длина контекста в символах для генерации и проверки.
+    max_total_tokens_per_question:
+        Жёсткий бюджет токенов на один вопрос (input + output).
+    max_total_tokens_soft:
+        Порог, после которого отключаются необязательные циклы rewrite/revise.
     history_limit:
         Сколько последних сообщений передавать в промпт.
     temperature:
@@ -106,12 +126,51 @@ class Settings:
     llm_model: str = ""
     llm_max_tokens: int | None = None
     max_rewrites: int = 2
-    history_limit: int = 10
+    max_subqueries: int = 4
+    max_retrieval_attempts: int = 2
+    max_answer_attempts: int = 2
+    max_total_llm_calls: int = 8
+    max_rewrite_subqueries_per_round: int = 2
+    max_merged_chunks: int = 8
+    max_grade_context_chars: int = 4000
+    max_answer_context_chars: int = 5000
+    max_total_tokens_per_question: int = 20000
+    max_total_tokens_soft: int = 15000
+    history_limit: int = 8
     temperature: float = 0.0
 
     def __post_init__(self) -> None:
         if self.max_rewrites < 0:
             raise ValueError("MAX_REWRITES не может быть отрицательным")
+        if self.max_subqueries <= 0:
+            raise ValueError("MAX_SUBQUERIES должен быть больше нуля")
+        if self.max_retrieval_attempts <= 0:
+            raise ValueError("MAX_RETRIEVAL_ATTEMPTS должен быть больше нуля")
+        if self.max_answer_attempts <= 0:
+            raise ValueError("MAX_ANSWER_ATTEMPTS должен быть больше нуля")
+        if self.max_total_llm_calls <= 0:
+            raise ValueError("MAX_TOTAL_LLM_CALLS должен быть больше нуля")
+        if self.max_rewrite_subqueries_per_round <= 0:
+            raise ValueError(
+                "MAX_REWRITE_SUBQUERIES_PER_ROUND должен быть больше нуля"
+            )
+        if self.max_merged_chunks <= 0:
+            raise ValueError("MAX_MERGED_CHUNKS должен быть больше нуля")
+        if self.max_grade_context_chars <= 0:
+            raise ValueError("MAX_GRADE_CONTEXT_CHARS должен быть больше нуля")
+        if self.max_answer_context_chars <= 0:
+            raise ValueError("MAX_ANSWER_CONTEXT_CHARS должен быть больше нуля")
+        if self.max_total_tokens_per_question <= 0:
+            raise ValueError(
+                "MAX_TOTAL_TOKENS_PER_QUESTION должен быть больше нуля"
+            )
+        if self.max_total_tokens_soft <= 0:
+            raise ValueError("MAX_TOTAL_TOKENS_SOFT должен быть больше нуля")
+        if self.max_total_tokens_soft >= self.max_total_tokens_per_question:
+            raise ValueError(
+                "MAX_TOTAL_TOKENS_SOFT должен быть меньше "
+                "MAX_TOTAL_TOKENS_PER_QUESTION"
+            )
         if self.history_limit <= 0:
             raise ValueError("HISTORY_LIMIT должен быть больше нуля")
         if self.temperature < 0:
@@ -129,6 +188,23 @@ def get_settings() -> Settings:
         llm_model=_env_first("LLM_MODEL", "OPENAI_MODEL", "GEN_MODEL", default=""),
         llm_max_tokens=_env_int_optional("MAX_TOKENS"),
         max_rewrites=_env_int("MAX_REWRITES", 2),
-        history_limit=_env_int("HISTORY_LIMIT", 10),
+        max_subqueries=_env_int("MAX_SUBQUERIES", 4),
+        max_retrieval_attempts=_env_int("MAX_RETRIEVAL_ATTEMPTS", 2),
+        max_answer_attempts=_env_int("MAX_ANSWER_ATTEMPTS", 2),
+        max_total_llm_calls=_env_int("MAX_TOTAL_LLM_CALLS", 8),
+        max_rewrite_subqueries_per_round=_env_int(
+            "MAX_REWRITE_SUBQUERIES_PER_ROUND", 2
+        ),
+        max_merged_chunks=_env_int("MAX_MERGED_CHUNKS", 8),
+        max_grade_context_chars=_env_int("MAX_GRADE_CONTEXT_CHARS", 4000),
+        max_answer_context_chars=_env_int(
+            "MAX_ANSWER_CONTEXT_CHARS",
+            _env_int("MAX_CONTEXT_CHARS", 5000),
+        ),
+        max_total_tokens_per_question=_env_int(
+            "MAX_TOTAL_TOKENS_PER_QUESTION", 20000
+        ),
+        max_total_tokens_soft=_env_int("MAX_TOTAL_TOKENS_SOFT", 15000),
+        history_limit=_env_int("HISTORY_LIMIT", 8),
         temperature=_env_float_first("TEMPERATURE", "LLM_TEMPERATURE", default=0.0),
     )
