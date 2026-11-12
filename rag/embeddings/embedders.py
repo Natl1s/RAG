@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from huggingface_hub import snapshot_download
+# from huggingface_hub import snapshot_download
 from script.embeddings import embeddings
 
 # from rag.embeddings.config import get_default_model
