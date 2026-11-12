@@ -1,5 +1,5 @@
 from __future__ import annotations
-from script.rerank import rerank
+# from script.rerank import rerank
 from rag.index.contracts import RetrievedChunk
 
 from typing import TYPE_CHECKING

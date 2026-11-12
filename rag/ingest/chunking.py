@@ -93,8 +93,8 @@ def chunk_document(
             global_start = start  # относительный, так как блоки независимы
 
             metadata = dict(doc.metadata)
-            if doc.title:
-                metadata["title"] = doc.title
+            # if doc.title:
+            #     metadata["title"] = doc.title
             metadata.update(
                 {
                     "chunk_index": chunk_index,
