@@ -9,6 +9,6 @@ logger = logging.getLogger(__name__)
 
 def read_docs(documents):
     return [
-        Document(doc_id=name, title=name, text=text)
-        for name, text in documents
+        Document(doc_id=title, text=text, metadata={"head_doc": head})
+        for title, text, head in documents
     ]
