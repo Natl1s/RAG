@@ -11,7 +11,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
-
+from rag.index.contracts import RetrievedChunk
 import httpx
 
 def env(name: str, default: str = "") -> str:
@@ -81,3 +81,15 @@ def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
     if any(v is None for v in vectors):
         raise ValueError("Получены не все embeddings")
     return vectors  # type: ignore[return-value]
+
+def rerank(client: httpx.Client, question: str, docs: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+    """Пример вызова RERANKER_MODEL через POST /rerank."""
+    result = post(client, "/rerank", RERANK_KEY, {
+        "model": RERANKER_MODEL,
+        "query": question,
+        "documents": [chunk.name + "\n" + chunk.head + "\n" + chunk.text for chunk in docs],
+        "top_n": min(top_k, len(docs)),
+    })
+    items = result.get("results", result.get("data", []))
+    indices = [int(item["index"]) for item in items]
+    return [i for i in indices if 0 <= i < len(docs)][:top_k]
