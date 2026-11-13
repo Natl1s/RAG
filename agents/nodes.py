@@ -6,9 +6,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -17,6 +16,7 @@ from agents.clarification import (
     detect_context_ambiguity,
     last_assistant_asked_question,
 )
+from agents.citations import append_sources, humanize_citations
 from agents.config import Settings
 from agents.context import merge_contexts, normalize_chunk
 from agents.dialog import parse_dialog, queries_similar
@@ -56,7 +56,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-Node = Callable[[AgentState], Awaitable[dict[str, Any]]]
+Node = Callable[[AgentState], dict[str, Any]]
 
 
 def _question(state: AgentState) -> str:
@@ -93,7 +93,7 @@ def _subqueries(state: AgentState) -> list[SubQuery]:
 def make_parse_dialog_node() -> Node:
     """Создать узел детерминированного разбора истории диалога."""
 
-    async def parse_dialog_node(state: AgentState) -> dict[str, Any]:
+    def parse_dialog_node(state: AgentState) -> dict[str, Any]:
         raw_input = (
             state.get("raw_input")
             or state.get("query")
@@ -115,14 +115,14 @@ def make_parse_dialog_node() -> Node:
 def make_understand_node(settings: Settings) -> Node:
     """Создать узел анализа вопроса и декомпозиции."""
 
-    async def understand(state: AgentState) -> dict[str, Any]:
+    def understand(state: AgentState) -> dict[str, Any]:
         last_question = (
             state.get("last_user_question")
             or state.get("query")
             or ""
         ).strip()
         usage: list[TokenUsage] = []
-        result = await understand_query(
+        result = understand_query(
             state.get("history") or [],
             last_question,
             settings=settings,
@@ -163,7 +163,7 @@ def make_understand_node(settings: Settings) -> Node:
 def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
     """Создать узел поиска в RAG по всем подзапросам."""
 
-    async def retrieve(state: AgentState) -> dict[str, Any]:
+    def retrieve(state: AgentState) -> dict[str, Any]:
         subqueries = _subqueries(state)
         tried_queries = list(state.get("tried_queries") or [])
         collected = []
@@ -174,7 +174,7 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
                 continue
 
             try:
-                chunks = await asyncio.to_thread(rag.search_chunks, query)
+                chunks = rag.search_chunks(query)
             except Exception as exc:
                 logger.warning(
                     "RAG поиск упал для подзапроса %s: %s: %s",
@@ -191,7 +191,15 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
                 len(chunks or []),
             )
             for chunk in chunks or []:
-                collected.append(normalize_chunk(chunk, subquery.id))
+                normalized = normalize_chunk(chunk, subquery.id)
+                if normalized is None:
+                    logger.debug(
+                        "Пропущен пустой RAG-чанк: doc_id=%r, chunk_id=%r",
+                        getattr(chunk, "doc_id", None),
+                        getattr(chunk, "chunk_id", None),
+                    )
+                    continue
+                collected.append(normalized)
 
             if query not in tried_queries:
                 tried_queries.append(query)
@@ -209,7 +217,7 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
 def make_grade_node(settings: Settings) -> Node:
     """Создать узел оценки покрытия контекста."""
 
-    async def grade(state: AgentState) -> dict[str, Any]:
+    def grade(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         subqueries = _subqueries(state)
         contexts = list(state.get("contexts") or [])
@@ -217,7 +225,7 @@ def make_grade_node(settings: Settings) -> Node:
         usage: list[TokenUsage] = []
 
         if contexts and total_steps < settings.max_total_llm_calls:
-            result = await grade_retrieval(
+            result = grade_retrieval(
                 question,
                 subqueries,
                 contexts,
@@ -230,7 +238,7 @@ def make_grade_node(settings: Settings) -> Node:
             result = fallback_grade(subqueries, contexts)
             step_increment = 0
         else:
-            result = await grade_retrieval(
+            result = grade_retrieval(
                 question,
                 subqueries,
                 contexts,
@@ -279,7 +287,7 @@ def make_grade_node(settings: Settings) -> Node:
 def make_rewrite_node(settings: Settings) -> Node:
     """Создать узел переформулировки проблемных подзапросов."""
 
-    async def rewrite(state: AgentState) -> dict[str, Any]:
+    def rewrite(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         verification = state.get("verification")
         subqueries = [
@@ -338,7 +346,7 @@ def make_rewrite_node(settings: Settings) -> Node:
             if not reason:
                 reason = "Текущий контекст не покрывает подзапрос."
 
-            new_text = await rewrite_subquery(
+            new_text = rewrite_subquery(
                 question,
                 subquery,
                 reason,
@@ -397,7 +405,7 @@ def make_rewrite_node(settings: Settings) -> Node:
 def make_generate_node(settings: Settings) -> Node:
     """Создать узел генерации черновика ответа."""
 
-    async def generate(state: AgentState) -> dict[str, Any]:
+    def generate(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         contexts = list(state.get("contexts") or [])
         answer_attempts = state.get("answer_attempts", 0) + 1
@@ -410,7 +418,7 @@ def make_generate_node(settings: Settings) -> Node:
                 "used_tokens": _add_usage(state, usage),
             }
 
-        answer = await generate_answer(
+        answer = generate_answer(
             question,
             contexts,
             state.get("history") or [],
@@ -434,7 +442,7 @@ def make_generate_node(settings: Settings) -> Node:
 def make_verify_node(settings: Settings) -> Node:
     """Создать узел проверки черновика ответа."""
 
-    async def verify(state: AgentState) -> dict[str, Any]:
+    def verify(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         draft = (state.get("answer_draft") or "").strip()
         contexts = list(state.get("contexts") or [])
@@ -454,7 +462,7 @@ def make_verify_node(settings: Settings) -> Node:
         total_steps = state.get("total_steps", 0)
         usage: list[TokenUsage] = []
         if not contexts:
-            result = await verify_answer(
+            result = verify_answer(
                 question,
                 draft,
                 contexts,
@@ -468,7 +476,7 @@ def make_verify_node(settings: Settings) -> Node:
             result = fallback_verification(draft, contexts)
             step_increment = 0
         else:
-            result = await verify_answer(
+            result = verify_answer(
                 question,
                 draft,
                 contexts,
@@ -491,7 +499,7 @@ def make_verify_node(settings: Settings) -> Node:
 def make_revise_node(settings: Settings) -> Node:
     """Создать узел исправления черновика ответа."""
 
-    async def revise(state: AgentState) -> dict[str, Any]:
+    def revise(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         draft = (state.get("answer_draft") or "").strip()
         contexts = list(state.get("contexts") or [])
@@ -501,7 +509,7 @@ def make_revise_node(settings: Settings) -> Node:
             return {}
 
         usage: list[TokenUsage] = []
-        revised = await revise_answer(
+        revised = revise_answer(
             question,
             draft,
             contexts,
@@ -523,7 +531,7 @@ def make_revise_node(settings: Settings) -> Node:
 def make_clarify_node() -> Node:
     """Создать узел уточняющего вопроса."""
 
-    async def clarify(state: AgentState) -> dict[str, Any]:
+    def clarify(state: AgentState) -> dict[str, Any]:
         answer = clarification_answer(state.get("clarification"))
         return {
             "answer": answer,
@@ -537,7 +545,7 @@ def make_clarify_node() -> Node:
 def make_finalize_node() -> Node:
     """Создать узел финального ответа."""
 
-    async def finalize(state: AgentState) -> dict[str, Any]:
+    def finalize(state: AgentState) -> dict[str, Any]:
         question = _question(state)
         coverage = state.get("coverage") or "none"
         verification = state.get("verification")
@@ -566,6 +574,13 @@ def make_finalize_node() -> Node:
             elif verification is not None and verification.verdict != "pass":
                 status = "partial"
 
+        if status in {"answered", "partial"}:
+            answer, source_refs = humanize_citations(
+                answer,
+                list(state.get("contexts") or []),
+            )
+            answer = append_sources(answer, source_refs)
+
         logger.info(
             "Итог по вопросу: status=%s, LLM-вызовов=%s, токенов≈%s",
             status,
@@ -584,7 +599,7 @@ def make_finalize_node() -> Node:
 def make_refuse_node() -> Node:
     """Создать узел отказа для вопросов вне тематики."""
 
-    async def refuse(state: AgentState) -> dict[str, Any]:
+    def refuse(state: AgentState) -> dict[str, Any]:
         answer = out_of_scope_answer()
         return {
             "answer": answer,

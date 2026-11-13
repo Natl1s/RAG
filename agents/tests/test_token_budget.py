@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -105,10 +105,10 @@ class ExtractUsageTest(unittest.TestCase):
         self.assertEqual(usage.total_tokens, 120)
 
 
-class ChatCompletionBudgetTest(unittest.IsolatedAsyncioTestCase):
-    async def test_records_actual_usage(self) -> None:
+class ChatCompletionBudgetTest(unittest.TestCase):
+    def test_records_actual_usage(self) -> None:
         fake_llm = SimpleNamespace(
-            ainvoke=AsyncMock(
+            invoke=Mock(
                 return_value=SimpleNamespace(
                     content="ответ",
                     usage_metadata={
@@ -122,7 +122,7 @@ class ChatCompletionBudgetTest(unittest.IsolatedAsyncioTestCase):
         usage: list[TokenUsage] = []
 
         with patch("agents.llm._build_llm", return_value=fake_llm):
-            result = await _chat_completion(
+            result = _chat_completion(
                 settings=make_settings(),
                 messages=[SystemMessage(content="промпт")],
                 max_tokens=100,
@@ -132,14 +132,14 @@ class ChatCompletionBudgetTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "ответ")
         self.assertEqual(usage[0].total_tokens, 15)
 
-    async def test_skips_call_when_budget_is_exhausted(self) -> None:
+    def test_skips_call_when_budget_is_exhausted(self) -> None:
         usage: list[TokenUsage] = []
 
         with patch(
             "agents.llm._build_llm",
             side_effect=AssertionError("real LLM must not be called"),
         ):
-            result = await _chat_completion(
+            result = _chat_completion(
                 settings=make_settings(),
                 messages=[SystemMessage(content="а" * 1000)],
                 max_tokens=500,
@@ -151,10 +151,10 @@ class ChatCompletionBudgetTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(usage[0].skipped)
         self.assertEqual(usage[0].total_tokens, 0)
 
-    async def test_generate_returns_no_data_when_budget_skipped(self) -> None:
+    def test_generate_returns_no_data_when_budget_skipped(self) -> None:
         usage: list[TokenUsage] = []
 
-        result = await generate_answer(
+        result = generate_answer(
             "вопрос",
             [make_context()],
             [],

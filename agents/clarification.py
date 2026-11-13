@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from agents.context import metadata_hints
+from agents.context import document_title, metadata_hints
 from agents.dialog import format_history, normalize_query
 from agents.state import ClarificationRequest, ContextChunk, DialogTurn
 
@@ -71,6 +71,14 @@ _DOC_NUMBER_RE = re.compile(
     r"[А-ЯA-Z]{1,4}[-/]\d{2,4}[-/]\d{2,4}",
     re.IGNORECASE,
 )
+_CONTRACT_HEADER_RE = re.compile(
+    r"^\s*(?:договор|контракт|дополнительное\s+соглашение|соглашение)\b",
+    re.IGNORECASE,
+)
+_CONTRACT_SOURCE_RE = re.compile(
+    r"(?:^|[_\s])(?:договор|контракт|соглашение)(?:[_\s]|$)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -112,7 +120,16 @@ def _extract_name(title: str) -> str:
         return ""
     tail = title[match.end() :]
     tail = re.sub(r"\.(txt|md|docx?|pdf)$", "", tail, flags=re.IGNORECASE)
+    tail = re.split(r"[—–]|\bот\b|\bг\.\s|\n", tail, maxsplit=1, flags=re.IGNORECASE)[0]
     return tail.replace("_", " ").strip(" -—–:.,")
+
+
+def _is_contract_document(chunk: ContextChunk) -> bool:
+    header = str(chunk.metadata.get("head_doc") or "")
+    if _CONTRACT_HEADER_RE.match(header):
+        return True
+    source = f"{chunk.metadata.get('title') or ''} {chunk.doc_id}"
+    return bool(_CONTRACT_SOURCE_RE.search(source))
 
 
 def candidate_documents(contexts: list[ContextChunk]) -> list[DocumentCandidate]:
@@ -120,6 +137,9 @@ def candidate_documents(contexts: list[ContextChunk]) -> list[DocumentCandidate]
     merged: dict[str, DocumentCandidate] = {}
 
     for chunk in contexts:
+        if not _is_contract_document(chunk):
+            continue
+
         hints = metadata_hints(chunk)
         doc_number = (hints.get("doc_number") or "").strip()
         if not doc_number:
@@ -127,7 +147,7 @@ def candidate_documents(contexts: list[ContextChunk]) -> list[DocumentCandidate]
 
         key = _normalize_doc_number(doc_number)
         title = str(chunk.metadata.get("title") or chunk.doc_id or "")
-        name = _extract_name(title)
+        name = _extract_name(title) or _extract_name(document_title(chunk))
         existing = merged.get(key)
 
         if existing is None:

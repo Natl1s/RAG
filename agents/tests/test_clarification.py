@@ -61,6 +61,73 @@ class CandidateDocumentsTest(unittest.TestCase):
         self.assertIn("Альфа-Трейд (П-17-2024)", labels)
         self.assertIn("Альфа-Трейдинг (ПТ-05-2023)", labels)
 
+    def test_prefers_title_over_long_header_for_name(self) -> None:
+        chunk = ContextChunk(
+            doc_id="документы компании__Договор поставки П-17-2024 Альфа-Трейд.txt",
+            chunk_id="alfa-1",
+            text="Текст",
+            metadata={
+                "title": "документы компании__Договор поставки П-17-2024 Альфа-Трейд.txt",
+                "head_doc": (
+                    "ДОГОВОР ПОСТАВКИ № П-17/2024 г. Москва — 12 февраля 2024 г. "
+                    "ООО «Альфа-Трейд»"
+                ),
+            },
+            score=0.9,
+            subquery_ids=[1],
+        )
+
+        candidates = candidate_documents([chunk])
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].label, "Альфа-Трейд (П-17/2024)")
+
+    def test_falls_back_to_header_name_without_title(self) -> None:
+        chunk = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="Текст",
+            metadata={"head_doc": "ДОГОВОР ПОСТАВКИ № П-17/2024 Альфа-Трейд"},
+            score=0.9,
+            subquery_ids=[1],
+        )
+
+        candidates = candidate_documents([chunk])
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].label, "Альфа-Трейд (П-17/2024)")
+
+    def test_ignores_non_contract_documents_with_numbers(self) -> None:
+        letter = ContextChunk(
+            doc_id="документы компании__Письмо комплаенс-службы К-12 от 15.04.2025.txt",
+            chunk_id="letter-1",
+            text="Текст",
+            metadata={
+                "head_doc": (
+                    "ООО «МЕРИДИАН» Служба комплаенс Исх. № К-12 от 15.04.2025"
+                )
+            },
+            score=0.9,
+            subquery_ids=[1],
+        )
+        regulation = ContextChunk(
+            doc_id="документы компании__Регламент согласования договоров ред 2025.txt",
+            chunk_id="reg-1",
+            text="Текст",
+            metadata={
+                "head_doc": (
+                    "РЕГЛАМЕНТ СОГЛАСОВАНИЯ ДОГОВОРОВ ООО «МЕРИДИАН» "
+                    "Утверждён приказом генерального директора № 14-П"
+                )
+            },
+            score=0.8,
+            subquery_ids=[1],
+        )
+
+        candidates = candidate_documents([letter, regulation])
+
+        self.assertEqual(candidates, [])
+
     def test_deduplicates_same_contract(self) -> None:
         supplement = ContextChunk(
             doc_id="документы компании__Доп соглашение 1 к договору П-17-2024.txt",

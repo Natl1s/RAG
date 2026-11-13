@@ -141,7 +141,7 @@ def _build_llm(
     return ChatOpenAI(**kwargs)
 
 
-async def _chat_completion(
+def _chat_completion(
     *,
     settings: Settings,
     messages: list[BaseMessage],
@@ -199,7 +199,7 @@ async def _chat_completion(
 
     started_at = time.monotonic()
     try:
-        response = await llm.ainvoke(messages)
+        response = llm.invoke(messages)
     except Exception as exc:
         logger.warning(
             "[%s] LLM request failed: %s: %s. Используется RAG-fallback.",
@@ -482,7 +482,7 @@ def _normalize_understand(
     )
 
 
-async def understand_query(
+def understand_query(
     history: list[DialogTurn],
     last_user_question: str,
     *,
@@ -506,7 +506,7 @@ async def understand_query(
             )
         ),
     ]
-    raw = await _chat_completion(
+    raw = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.0,
@@ -629,7 +629,7 @@ def _normalize_grade(
     )
 
 
-async def grade_retrieval(
+def grade_retrieval(
     question: str,
     subqueries: list[SubQuery],
     contexts: list[ContextChunk],
@@ -663,7 +663,7 @@ async def grade_retrieval(
         SystemMessage(content=GRADE_SYSTEM_PROMPT),
         HumanMessage(content=grade_user_prompt(question, subqueries_text, context_text)),
     ]
-    raw = await _chat_completion(
+    raw = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.0,
@@ -713,7 +713,7 @@ async def grade_retrieval(
     return _normalize_grade(parsed, subqueries, contexts)
 
 
-async def rewrite_subquery(
+def rewrite_subquery(
     question: str,
     subquery: SubQuery,
     reason: str,
@@ -735,7 +735,7 @@ async def rewrite_subquery(
             content=rewrite_user_prompt(question, base, reason, tried_text)
         ),
     ]
-    raw = await _chat_completion(
+    raw = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.1,
@@ -754,7 +754,7 @@ async def rewrite_subquery(
     return cleaned
 
 
-async def generate_answer(
+def generate_answer(
     question: str,
     contexts: list[ContextChunk],
     history: list[DialogTurn],
@@ -787,7 +787,7 @@ async def generate_answer(
         ),
     ]
     usage_start = len(usage_sink) if usage_sink is not None else 0
-    answer = await _chat_completion(
+    answer = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.0,
@@ -808,11 +808,17 @@ async def generate_answer(
 def _known_sources(contexts: list[ContextChunk]) -> set[str]:
     known: set[str] = set()
     for chunk in contexts:
-        for value in (
+        chunk_ids = chunk.metadata.get("chunk_ids")
+        values: list[object] = [
             chunk.doc_id,
             chunk.chunk_id,
-            str(chunk.metadata.get("title") or ""),
-        ):
+            chunk.metadata.get("title"),
+            chunk.metadata.get("head_doc"),
+            chunk.metadata.get("document_title"),
+        ]
+        if isinstance(chunk_ids, (list, tuple)):
+            values.extend(chunk_ids)
+        for value in values:
             if value:
                 known.add(str(value).strip())
     return known
@@ -871,7 +877,7 @@ def fallback_verification(
     )
 
 
-async def verify_answer(
+def verify_answer(
     question: str,
     answer: str,
     contexts: list[ContextChunk],
@@ -905,7 +911,7 @@ async def verify_answer(
             )
         ),
     ]
-    raw = await _chat_completion(
+    raw = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.0,
@@ -966,7 +972,7 @@ async def verify_answer(
     return parsed
 
 
-async def revise_answer(
+def revise_answer(
     question: str,
     answer: str,
     contexts: list[ContextChunk],
@@ -997,7 +1003,7 @@ async def revise_answer(
             )
         ),
     ]
-    revised = await _chat_completion(
+    revised = _chat_completion(
         settings=settings,
         messages=messages,
         temperature=0.0,
