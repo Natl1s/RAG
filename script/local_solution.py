@@ -130,9 +130,9 @@ def join(a: list[tuple[str, str]],
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
-    index = load_index(Path("dataset/index.csv"))
+    index = load_index(Path("./index.csv"))
     documents = join(documents, index)
-    questions = questions[:2]
+    # questions = questions[:2]
     rag_client = RAG(RAGConfig())
     rag_client.build(documents)
     service = build_local_service(rag_client)
