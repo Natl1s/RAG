@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from agents.config import Settings
 from agents.service import AgentService
@@ -59,7 +59,7 @@ class AgentServiceTest(unittest.TestCase):
         self.rag = FakeRAG([make_chunk()])
         completion = patch(
             "agents.llm._chat_completion",
-            new=AsyncMock(side_effect=completion_responses()),
+            new=Mock(side_effect=completion_responses()),
         )
         self.completion = completion.start()
         self.addCleanup(completion.stop)
@@ -113,8 +113,8 @@ class AgentServiceTest(unittest.TestCase):
         asyncio.run(self.service.aanswer("u-1", "первый"))
         asyncio.run(self.service.aanswer("u-1", "второй"))
 
-        state = asyncio.run(
-            self.service._graph.aget_state({"configurable": {"thread_id": "u-1"}})
+        state = self.service._graph.get_state(
+            {"configurable": {"thread_id": "u-1"}}
         )
 
         self.assertEqual(
@@ -136,6 +136,13 @@ class AgentServiceTest(unittest.TestCase):
                 self.service.answer("u-1", "вопрос")
 
         asyncio.run(call_sync())
+
+    def test_async_answer_works_inside_running_loop(self) -> None:
+        async def call_async() -> None:
+            result = await self.service.aanswer("u-1", "налоги")
+            self.assertIn("Ответ по документу", result.answer)
+
+        asyncio.run(call_async())
 
 
 if __name__ == "__main__":

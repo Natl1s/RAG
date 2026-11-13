@@ -1,5 +1,7 @@
 # from os import path
 
+import threading
+
 import httpx
 import numpy as np
 from rag.retrieve import build_retrievers
@@ -16,6 +18,7 @@ class RAG:
         self.embedder = config.embedder
         self.reranker = config.reranker
         self.retrievers = {}
+        self._search_lock = threading.Lock()
 
     def build(self, documents):
         ''' из прочитанных документов строим индексы для поиска '''
@@ -31,13 +34,14 @@ class RAG:
         print("Индексы построены:", list(self.retrievers.keys()))
 
     def search_chunks(self, query: str) -> list[RetrievedChunk]:
-        results = self.retrievers[
-            self.config.retrieval_type
-        ].retrieve(query, k=self.config.top_k)
-        if self.config.use_reranker:
-            results = self.do_rerank(query, results)
-        # print(results[0])
-        return results
+        with self._search_lock:
+            results = self.retrievers[
+                self.config.retrieval_type
+            ].retrieve(query, k=self.config.top_k)
+            if self.config.use_reranker:
+                results = self.do_rerank(query, results)
+            # print(results[0])
+            return results
 
     def do_rerank(
         self, query: str, top_result: list[RetrievedChunk]

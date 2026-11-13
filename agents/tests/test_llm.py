@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from langchain_core.messages import SystemMessage
 
@@ -45,8 +45,8 @@ def make_subquery(text: str = "налоги", subquery_id: int = 1) -> SubQuery:
     return SubQuery(id=subquery_id, text=text, part_ids=[1], kind="fact")
 
 
-class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
-    async def test_parses_and_normalizes_complex_question(self) -> None:
+class UnderstandQueryTest(unittest.TestCase):
+    def test_parses_and_normalizes_complex_question(self) -> None:
         raw = (
             '{"standalone_query":"Какие налоги платит ИП по договору № 1?",'
             '"in_scope":true,"scope_reason":"налоги","is_complex":true,'
@@ -58,8 +58,8 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
             '{"id":1,"text":"налоги ИП","part_ids":[1],"kind":"fact"},'
             '{"id":2,"text":"срок уплаты налогов ИП","part_ids":[1],"kind":"fact"}]}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await understand_query(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = understand_query(
                 [DialogTurn(role="user", text="Я ИП")],
                 "Какие налоги?",
                 settings=make_settings(),
@@ -70,19 +70,19 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.subqueries), 2)
         self.assertTrue(result.premise_check.has_false_premise)
 
-    async def test_simple_question_keeps_one_subquery(self) -> None:
+    def test_simple_question_keeps_one_subquery(self) -> None:
         raw = (
             '{"standalone_query":"налоги","in_scope":true,'
             '"is_complex":false,"subqueries":['
             '{"id":1,"text":"налоги","part_ids":[1]},'
             '{"id":2,"text":"штрафы","part_ids":[1]}]}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await understand_query([], "налоги", settings=make_settings())
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = understand_query([], "налоги", settings=make_settings())
 
         self.assertEqual(len(result.subqueries), 1)
 
-    async def test_parses_clarification_request(self) -> None:
+    def test_parses_clarification_request(self) -> None:
         raw = (
             '{"standalone_query":"гарантия по договору с Альфой",'
             '"in_scope":true,"is_complex":false,'
@@ -93,8 +93,8 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
             '"subqueries":[{"id":1,"text":"гарантия Альфа",'
             '"part_ids":[1],"kind":"fact"}]}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await understand_query(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = understand_query(
                 [],
                 "Подскажите гарантию по договору с Альфой.",
                 settings=make_settings(),
@@ -104,7 +104,7 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("какая именно компания", result.clarification.question)
         self.assertEqual(len(result.clarification.options), 2)
 
-    async def test_builds_clarification_question_from_missing_slots(self) -> None:
+    def test_builds_clarification_question_from_missing_slots(self) -> None:
         raw = (
             '{"standalone_query":"возврат помещения","in_scope":true,'
             '"is_complex":false,'
@@ -113,8 +113,8 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
             '"subqueries":[{"id":1,"text":"возврат помещения",'
             '"part_ids":[1],"kind":"fact"}]}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await understand_query(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = understand_query(
                 [],
                 "Мы арендуем склад. Планируем съезжать.",
                 settings=make_settings(),
@@ -123,24 +123,24 @@ class UnderstandQueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.clarification.needed)
         self.assertIn("номер договора", result.clarification.question)
 
-    async def test_falls_back_to_last_question_on_bad_json(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="не json")):
-            result = await understand_query([], "налоги", settings=make_settings())
+    def test_falls_back_to_last_question_on_bad_json(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="не json")):
+            result = understand_query([], "налоги", settings=make_settings())
 
         self.assertEqual(result.standalone_query, "налоги")
         self.assertEqual(result.subqueries[0].text, "налоги")
         self.assertFalse(result.clarification.needed)
 
 
-class GradeRetrievalTest(unittest.IsolatedAsyncioTestCase):
-    async def test_parses_subquery_grades_and_computes_overall(self) -> None:
+class GradeRetrievalTest(unittest.TestCase):
+    def test_parses_subquery_grades_and_computes_overall(self) -> None:
         raw = (
             '{"subqueries":[{"subquery_id":1,"coverage":"partial",'
             '"missing_aspects":["срок"],"reason":"есть норма"}],'
             '"overall":"full","missing_aspects":[]}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await grade_retrieval(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = grade_retrieval(
                 "налоги",
                 [make_subquery()],
                 [make_context()],
@@ -150,10 +150,10 @@ class GradeRetrievalTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.overall, "partial")
         self.assertEqual(result.subqueries[0].missing_aspects, ["срок"])
 
-    async def test_empty_context_does_not_call_llm(self) -> None:
-        completion = AsyncMock(return_value="")
+    def test_empty_context_does_not_call_llm(self) -> None:
+        completion = Mock(return_value="")
         with patch("agents.llm._chat_completion", new=completion):
-            result = await grade_retrieval(
+            result = grade_retrieval(
                 "налоги",
                 [make_subquery()],
                 [],
@@ -161,12 +161,12 @@ class GradeRetrievalTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.overall, "none")
-        completion.assert_not_awaited()
+        completion.assert_not_called()
 
-    async def test_missing_subquery_grade_uses_heuristic(self) -> None:
+    def test_missing_subquery_grade_uses_heuristic(self) -> None:
         raw = '{"subqueries":[],"overall":"none","missing_aspects":[]}'
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await grade_retrieval(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = grade_retrieval(
                 "налоги",
                 [make_subquery()],
                 [make_context()],
@@ -176,10 +176,10 @@ class GradeRetrievalTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.overall, "full")
 
 
-class RewriteSubqueryTest(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_rewritten_query(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="новый запрос")):
-            result = await rewrite_subquery(
+class RewriteSubqueryTest(unittest.TestCase):
+    def test_returns_rewritten_query(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="новый запрос")):
+            result = rewrite_subquery(
                 "вопрос",
                 make_subquery("старый запрос"),
                 "нужно точнее",
@@ -189,9 +189,9 @@ class RewriteSubqueryTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "новый запрос")
 
-    async def test_falls_back_to_current_query(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="")):
-            result = await rewrite_subquery(
+    def test_falls_back_to_current_query(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="")):
+            result = rewrite_subquery(
                 "вопрос",
                 make_subquery("старый запрос"),
                 "нужно точнее",
@@ -201,9 +201,9 @@ class RewriteSubqueryTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "старый запрос")
 
-    async def test_avoids_near_duplicate_of_tried_query(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="старый запрос")):
-            result = await rewrite_subquery(
+    def test_avoids_near_duplicate_of_tried_query(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="старый запрос")):
+            result = rewrite_subquery(
                 "вопрос",
                 make_subquery("старый запрос"),
                 "нужно точнее",
@@ -214,10 +214,10 @@ class RewriteSubqueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "старый запрос")
 
 
-class GenerateAnswerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_llm_answer_when_available(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="Ответ LLM")):
-            answer = await generate_answer(
+class GenerateAnswerTest(unittest.TestCase):
+    def test_returns_llm_answer_when_available(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="Ответ LLM")):
+            answer = generate_answer(
                 "вопрос",
                 [make_context()],
                 [],
@@ -229,9 +229,9 @@ class GenerateAnswerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "Ответ LLM")
 
-    async def test_falls_back_to_context_when_llm_empty(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="")):
-            answer = await generate_answer(
+    def test_falls_back_to_context_when_llm_empty(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="")):
+            answer = generate_answer(
                 "вопрос",
                 [make_context()],
                 [],
@@ -244,10 +244,10 @@ class GenerateAnswerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("doc-1", answer)
         self.assertIn("налог", answer)
 
-    async def test_empty_context_does_not_call_llm(self) -> None:
-        completion = AsyncMock(return_value="Ответ LLM")
+    def test_empty_context_does_not_call_llm(self) -> None:
+        completion = Mock(return_value="Ответ LLM")
         with patch("agents.llm._chat_completion", new=completion):
-            answer = await generate_answer(
+            answer = generate_answer(
                 "вопрос",
                 [],
                 [],
@@ -258,18 +258,18 @@ class GenerateAnswerTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn("нет документов", answer)
-        completion.assert_not_awaited()
+        completion.assert_not_called()
 
 
-class VerifyAnswerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_parses_valid_verification(self) -> None:
+class VerifyAnswerTest(unittest.TestCase):
+    def test_parses_valid_verification(self) -> None:
         raw = (
             '{"verdict":"pass","grounded":true,"answers_question":true,'
             '"citation_ok":true,"premise_ok":true,"failure_type":"none",'
             '"missing_evidence":[],"fix_hint":"","reason":"ok"}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await verify_answer(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = verify_answer(
                 "вопрос",
                 "Ответ [doc_id: doc-1]",
                 [make_context()],
@@ -279,14 +279,14 @@ class VerifyAnswerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.verdict, "pass")
 
-    async def test_inconsistent_pass_becomes_revision(self) -> None:
+    def test_inconsistent_pass_becomes_revision(self) -> None:
         raw = (
             '{"verdict":"pass","grounded":false,"answers_question":true,'
             '"citation_ok":true,"premise_ok":true,"failure_type":"generation",'
             '"missing_evidence":[],"fix_hint":"убрать выдумку","reason":"не заземлён"}'
         )
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value=raw)):
-            result = await verify_answer(
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = verify_answer(
                 "вопрос",
                 "Ответ",
                 [make_context()],
@@ -296,9 +296,9 @@ class VerifyAnswerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.verdict, "revise_answer")
 
-    async def test_bad_citation_becomes_revision_on_fallback(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="не json")):
-            result = await verify_answer(
+    def test_bad_citation_becomes_revision_on_fallback(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="не json")):
+            result = verify_answer(
                 "вопрос",
                 "Ответ [doc_id: doc-999]",
                 [make_context()],
@@ -309,10 +309,10 @@ class VerifyAnswerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.verdict, "revise_answer")
         self.assertEqual(result.failure_type, "citation")
 
-    async def test_empty_context_refuses_without_llm(self) -> None:
-        completion = AsyncMock(return_value="")
+    def test_empty_context_refuses_without_llm(self) -> None:
+        completion = Mock(return_value="")
         with patch("agents.llm._chat_completion", new=completion):
-            result = await verify_answer(
+            result = verify_answer(
                 "вопрос",
                 "Ответ",
                 [],
@@ -321,13 +321,13 @@ class VerifyAnswerTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.verdict, "refuse")
-        completion.assert_not_awaited()
+        completion.assert_not_called()
 
 
-class ReviseAnswerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_revised_answer(self) -> None:
-        with patch("agents.llm._chat_completion", new=AsyncMock(return_value="Исправлено")):
-            result = await revise_answer(
+class ReviseAnswerTest(unittest.TestCase):
+    def test_returns_revised_answer(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="Исправлено")):
+            result = revise_answer(
                 "вопрос",
                 "Черновик",
                 [make_context()],
@@ -337,10 +337,10 @@ class ReviseAnswerTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "Исправлено")
 
-    async def test_empty_context_returns_no_data_answer(self) -> None:
-        completion = AsyncMock(return_value="Исправлено")
+    def test_empty_context_returns_no_data_answer(self) -> None:
+        completion = Mock(return_value="Исправлено")
         with patch("agents.llm._chat_completion", new=completion):
-            result = await revise_answer(
+            result = revise_answer(
                 "вопрос",
                 "Черновик",
                 [],
@@ -349,10 +349,10 @@ class ReviseAnswerTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn("нет документов", result)
-        completion.assert_not_awaited()
+        completion.assert_not_called()
 
 
-class ContextLimitTest(unittest.IsolatedAsyncioTestCase):
+class ContextLimitTest(unittest.TestCase):
     def _context(self, text: str) -> ContextChunk:
         return ContextChunk(
             doc_id="doc-1",
@@ -362,28 +362,28 @@ class ContextLimitTest(unittest.IsolatedAsyncioTestCase):
             subquery_ids=[1],
         )
 
-    async def test_grade_uses_grade_context_limit(self) -> None:
+    def test_grade_uses_grade_context_limit(self) -> None:
         raw = '{"subqueries":[],"overall":"none","missing_aspects":[]}'
-        completion = AsyncMock(return_value=raw)
+        completion = Mock(return_value=raw)
         chunk = self._context("Начало " + "Т" * 500 + " ХВОСТ")
 
         with patch("agents.llm._chat_completion", new=completion):
-            await grade_retrieval(
+            grade_retrieval(
                 "вопрос",
                 [make_subquery()],
                 [chunk],
                 settings=make_settings(max_grade_context_chars=100),
             )
 
-        messages = completion.await_args.kwargs["messages"]
+        messages = completion.call_args.kwargs["messages"]
         self.assertNotIn("ХВОСТ", messages[1].content)
 
-    async def test_generate_uses_answer_context_limit(self) -> None:
-        completion = AsyncMock(return_value="Ответ")
+    def test_generate_uses_answer_context_limit(self) -> None:
+        completion = Mock(return_value="Ответ")
         chunk = self._context("Начало " + "Т" * 500 + " ХВОСТ")
 
         with patch("agents.llm._chat_completion", new=completion):
-            await generate_answer(
+            generate_answer(
                 "вопрос",
                 [chunk],
                 [],
@@ -393,14 +393,14 @@ class ContextLimitTest(unittest.IsolatedAsyncioTestCase):
                 settings=make_settings(max_answer_context_chars=100),
             )
 
-        messages = completion.await_args.kwargs["messages"]
+        messages = completion.call_args.kwargs["messages"]
         self.assertNotIn("ХВОСТ", messages[1].content)
 
 
-class ChatCompletionTest(unittest.IsolatedAsyncioTestCase):
-    async def test_missing_settings_raise_value_error(self) -> None:
+class ChatCompletionTest(unittest.TestCase):
+    def test_missing_settings_raise_value_error(self) -> None:
         with self.assertRaises(ValueError) as raised:
-            await _chat_completion(settings=Settings(), messages=[])
+            _chat_completion(settings=Settings(), messages=[])
 
         self.assertIn("LLM_BASE_URL", str(raised.exception))
         self.assertIn("LLM_API_KEY", str(raised.exception))
@@ -411,16 +411,16 @@ class ChatCompletionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("test-key", repr(settings))
 
 
-class ChatCompletionLoggingTest(unittest.IsolatedAsyncioTestCase):
-    async def test_logs_prompt_and_raw_response(self) -> None:
+class ChatCompletionLoggingTest(unittest.TestCase):
+    def test_logs_prompt_and_raw_response(self) -> None:
         fake_llm = SimpleNamespace(
-            ainvoke=AsyncMock(return_value=SimpleNamespace(content="сырой ответ"))
+            invoke=Mock(return_value=SimpleNamespace(content="сырой ответ"))
         )
         with (
             patch("agents.llm._build_llm", return_value=fake_llm),
             self.assertLogs("agents.llm", level="INFO") as captured,
         ):
-            result = await _chat_completion(
+            result = _chat_completion(
                 settings=make_settings(),
                 messages=[SystemMessage(content="системный промпт")],
                 label="test",
@@ -433,15 +433,15 @@ class ChatCompletionLoggingTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("сырой ответ", logs)
         self.assertIn("LLM вызов завершён", logs)
 
-    async def test_api_error_is_soft_and_logged(self) -> None:
+    def test_api_error_is_soft_and_logged(self) -> None:
         fake_llm = SimpleNamespace(
-            ainvoke=AsyncMock(side_effect=RuntimeError("сеть недоступна"))
+            invoke=Mock(side_effect=RuntimeError("сеть недоступна"))
         )
         with (
             patch("agents.llm._build_llm", return_value=fake_llm),
             self.assertLogs("agents.llm", level="WARNING") as captured,
         ):
-            result = await _chat_completion(
+            result = _chat_completion(
                 settings=make_settings(),
                 messages=[SystemMessage(content="промпт")],
             )

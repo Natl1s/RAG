@@ -79,30 +79,8 @@ class AgentService:
             checkpointer or _default_checkpointer(),
         )
 
-    async def aanswer(self, thread_id: str, question: str) -> AgentResult:
-        """Асинхронно ответить на вопрос.
-
-        Parameters
-        ----------
-        thread_id:
-            Идентификатор диалога. По нему checkpointer хранит историю.
-        question:
-            Вопрос пользователя. Может содержать историю в формате
-            ``Пользователь: ...`` / ``Ассистент: ...``.
-
-        Returns
-        -------
-        AgentResult
-            Ответ агента.
-        """
-        if not thread_id:
-            raise ValueError("thread_id не может быть пустым")
-
-        question = (question or "").strip()
-        if not question:
-            raise ValueError("Вопрос не может быть пустым")
-
-        state: AgentState = {
+    def _initial_state(self, question: str) -> AgentState:
+        return {
             "messages": [HumanMessage(content=question)],
             "raw_input": question,
             "query": question,
@@ -129,35 +107,70 @@ class AgentService:
             "answer": "",
             "status": "refused",
         }
-        config: dict[str, Any] = {
+
+    def _graph_config(self, thread_id: str) -> dict[str, Any]:
+        return {
             "configurable": {"thread_id": thread_id},
             "recursion_limit": 30,
         }
-        result = await self._graph.ainvoke(state, config=config)
 
+    def _to_result(self, result: dict[str, Any]) -> AgentResult:
         answer = (result.get("answer") or "").strip()
         if not answer:
             answer = "Не удалось сформировать ответ."
 
-        status = result.get("status") or "refused"
-        clarification = result.get("clarification")
         return AgentResult(
             answer=answer,
-            status=status,
-            clarification=clarification,
+            status=result.get("status") or "refused",
+            clarification=result.get("clarification"),
         )
 
-    def answer(self, thread_id: str, question: str) -> str:
-        """Синхронная обёртка над :meth:`aanswer`.
+    def _answer_sync(self, thread_id: str, question: str) -> AgentResult:
+        if not thread_id:
+            raise ValueError("thread_id не может быть пустым")
 
-        Удобна для скриптов. Внутри уже работающего event loop (например,
-        в Jupyter или FastAPI) использовать нельзя — там нужен ``await``
-        к :meth:`aanswer`.
+        question = (question or "").strip()
+        if not question:
+            raise ValueError("Вопрос не может быть пустым")
+
+        result = self._graph.invoke(
+            self._initial_state(question),
+            config=self._graph_config(thread_id),
+        )
+        return self._to_result(result)
+
+    async def aanswer(self, thread_id: str, question: str) -> AgentResult:
+        """Асинхронно ответить на вопрос.
+
+        Синхронный граф выполняется в отдельном потоке, поэтому event loop
+        не блокируется.
+
+        Parameters
+        ----------
+        thread_id:
+            Идентификатор диалога. По нему checkpointer хранит историю.
+        question:
+            Вопрос пользователя. Может содержать историю в формате
+            ``Пользователь: ...`` / ``Ассистент: ...``.
+
+        Returns
+        -------
+        AgentResult
+            Ответ агента.
+        """
+        return await asyncio.to_thread(self._answer_sync, thread_id, question)
+
+    def answer(self, thread_id: str, question: str) -> str:
+        """Синхронно ответить на вопрос.
+
+        Удобна для скриптов и batch-запуска. Внутри уже работающего event
+        loop (например, в Jupyter или FastAPI) использовать нельзя — там
+        нужен ``await`` к :meth:`aanswer`.
         """
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(self.aanswer(thread_id, question)).answer
+            return self._answer_sync(thread_id, question).answer
 
         raise RuntimeError(
             "answer() нельзя вызывать внутри работающего event loop. "
