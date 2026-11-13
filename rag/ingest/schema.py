@@ -12,9 +12,7 @@ class Document:
     Parameters
     ----------
     doc_id : str
-        Уникальный идентификатор документа
-    title : str
-        Заголовок документа
+        Уникальный идентификатор документa (now it's title)
     text : str
         Полный текст документа
     metadata : Dict[str, Any]
@@ -22,9 +20,8 @@ class Document:
     """
 
     doc_id: str
-    title: str
     text: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any]
 
 
 @dataclass

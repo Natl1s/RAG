@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from rag.embeddings.embedders import SentenceTransformerEmbeddings, ExternalEmbeddings
-
+from rag.rerankers.reranker import Reranker, ExternalReranker
 @dataclass
 class RAGConfig:
     # Чанкер
@@ -8,7 +8,7 @@ class RAGConfig:
     chunk_overlap: int = 20
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
-    embedding_model: str = "intfloat/multilingual-e5-small"
+    embedding_model: str = "models/multilingual-e5-small"
     embedding_type: str = "local"  # "local" or "remote"
     batch_size: int = 32
     client: object = None  # httpx.Client for remote embeddings
@@ -27,6 +27,10 @@ class RAGConfig:
     min_chunk_chars: int = 50
     max_chunk_chars: int = 10000
 
+    # Reranker parametr
+    reranker: object = None
+    n_reranks: int = 3
+
     # Инициализация эмбеддера по выбранному способу вычисления.
     def __post_init__(self):
         if self.embedding_type == "local":
@@ -35,11 +39,13 @@ class RAGConfig:
                 batch_size=self.batch_size,
             )
 
+            self.reranker = Reranker(self)
+
         elif self.embedding_type == "remote":
             if self.client is None:
                 raise ValueError("Client must be provided")
 
             self.embedder = ExternalEmbeddings(self.client)
-
+            self.reranker = ExternalReranker(self)
         else:
             raise ValueError(f"Unknown embedding type: {self.embedding_type}")
