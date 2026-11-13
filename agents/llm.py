@@ -808,11 +808,17 @@ async def generate_answer(
 def _known_sources(contexts: list[ContextChunk]) -> set[str]:
     known: set[str] = set()
     for chunk in contexts:
-        for value in (
+        chunk_ids = chunk.metadata.get("chunk_ids")
+        values: list[object] = [
             chunk.doc_id,
             chunk.chunk_id,
-            str(chunk.metadata.get("title") or ""),
-        ):
+            chunk.metadata.get("title"),
+            chunk.metadata.get("head_doc"),
+            chunk.metadata.get("document_title"),
+        ]
+        if isinstance(chunk_ids, (list, tuple)):
+            values.extend(chunk_ids)
+        for value in values:
             if value:
                 known.add(str(value).strip())
     return known

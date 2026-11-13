@@ -191,7 +191,15 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
                 len(chunks or []),
             )
             for chunk in chunks or []:
-                collected.append(normalize_chunk(chunk, subquery.id))
+                normalized = normalize_chunk(chunk, subquery.id)
+                if normalized is None:
+                    logger.debug(
+                        "Пропущен пустой RAG-чанк: doc_id=%r, chunk_id=%r",
+                        getattr(chunk, "doc_id", None),
+                        getattr(chunk, "chunk_id", None),
+                    )
+                    continue
+                collected.append(normalized)
 
             if query not in tried_queries:
                 tried_queries.append(query)

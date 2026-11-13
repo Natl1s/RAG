@@ -25,9 +25,12 @@ class NormalizeChunkTest(unittest.TestCase):
             2,
         )
 
+        self.assertIsNotNone(chunk)
         self.assertEqual(chunk.doc_id, "doc-1")
         self.assertEqual(chunk.chunk_id, "chunk-1")
-        self.assertEqual(chunk.metadata, {"title": "Договор"})
+        self.assertEqual(chunk.metadata["title"], "Договор")
+        self.assertEqual(chunk.metadata["document_title"], "Договор")
+        self.assertIsNone(chunk.metadata["doc_number"])
         self.assertEqual(chunk.subquery_ids, [2])
 
     def test_chunk_id_falls_back_to_doc_id(self) -> None:
@@ -43,6 +46,106 @@ class NormalizeChunkTest(unittest.TestCase):
         )
 
         self.assertEqual(chunk.chunk_id, "doc-1")
+
+    def test_discards_empty_text(self) -> None:
+        chunk = normalize_chunk(
+            RetrievedChunk(
+                doc_id="doc-1",
+                chunk_id="chunk-1",
+                text="   \n\t",
+                metadata={"head_doc": "Договор № 1"},
+                score=0.5,
+            ),
+            1,
+        )
+
+        self.assertIsNone(chunk)
+
+
+class MetadataParsingTest(unittest.TestCase):
+    def test_parses_head_doc_fields(self) -> None:
+        chunk = normalize_chunk(
+            RetrievedChunk(
+                doc_id="doc-1",
+                chunk_id="chunk-1",
+                text="Текст",
+                metadata={
+                    "head_doc": (
+                        "Договор № 123/2024-АБ от 01.03.2024 "
+                        "— 1 августа 2024 г."
+                    ),
+                    "chunk_index": "0",
+                    "char_start": 0,
+                    "char_end": 10,
+                },
+                score=0.5,
+            ),
+            1,
+        )
+
+        self.assertIsNotNone(chunk)
+        self.assertEqual(chunk.metadata["document_title"], (
+            "Договор № 123/2024-АБ от 01.03.2024 — 1 августа 2024 г."
+        ))
+        self.assertEqual(chunk.metadata["doc_number"], "123/2024-АБ")
+        self.assertEqual(chunk.metadata["document_date"], "01.08.2024")
+        self.assertEqual(chunk.metadata["chunk_index"], 0)
+        self.assertEqual(chunk.metadata["char_start"], 0)
+        self.assertEqual(chunk.metadata["char_end"], 10)
+
+    def test_addendum_uses_parent_contract_number(self) -> None:
+        chunk = normalize_chunk(
+            RetrievedChunk(
+                doc_id="addendum",
+                chunk_id="chunk-1",
+                text="Текст",
+                metadata={
+                    "head_doc": (
+                        "Дополнительное соглашение № 2 к Договору "
+                        "№ 123/2024-АБ от 01.03.2024"
+                    )
+                },
+                score=0.5,
+            ),
+            1,
+        )
+
+        self.assertIsNotNone(chunk)
+        self.assertEqual(chunk.metadata["doc_number"], "123/2024-АБ")
+        self.assertEqual(chunk.metadata["document_date"], "01.03.2024")
+
+    def test_earliest_status_marker_wins(self) -> None:
+        active_first = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="Текст",
+            metadata={"head_doc": "Договор действует, старая редакция утратила силу"},
+            subquery_ids=[1],
+        )
+        invalid_first = ContextChunk(
+            doc_id="doc-2",
+            chunk_id="chunk-2",
+            text="Текст",
+            metadata={"head_doc": "Договор утратил силу, новый документ действует"},
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(metadata_hints(active_first)["status"], "действует")
+        self.assertEqual(metadata_hints(invalid_first)["status"], "утратил силу")
+
+    def test_numeric_edition_and_date_normalized(self) -> None:
+        chunk = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="Текст",
+            metadata={"head_doc": "Кодекс, редакция от 01.02.2024"},
+            subquery_ids=[1],
+        )
+
+        hints = metadata_hints(chunk)
+
+        self.assertEqual(hints["edition"], "01.02.2024")
+        self.assertEqual(hints["document_date"], "01.02.2024")
 
 
 class MergeContextsTest(unittest.TestCase):
@@ -106,6 +209,72 @@ class FormatContextTest(unittest.TestCase):
         formatted = format_context([chunk], max_chars=80)
 
         self.assertLessEqual(len(formatted), 80)
+
+    def test_merges_contiguous_chunks_by_offsets(self) -> None:
+        first = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="0123456789",
+            metadata={"chunk_index": 0, "char_start": 0, "char_end": 10},
+            subquery_ids=[1],
+        )
+        second = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-2",
+            text="56789abcde",
+            metadata={"chunk_index": 1, "char_start": 5, "char_end": 15},
+            subquery_ids=[1],
+        )
+
+        formatted = format_context([first, second])
+
+        self.assertIn("0123456789abcde", formatted)
+        self.assertNotIn("[...]", formatted)
+        self.assertIn("chunk_ids: chunk-1, chunk-2", formatted)
+
+    def test_keeps_disjoint_chunks_separate(self) -> None:
+        first = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="abcde",
+            metadata={"chunk_index": 0, "char_start": 0, "char_end": 5},
+            subquery_ids=[1],
+        )
+        second = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-2",
+            text="fghij",
+            metadata={"chunk_index": 1, "char_start": 10, "char_end": 15},
+            subquery_ids=[1],
+        )
+
+        formatted = format_context([first, second])
+
+        self.assertIn("abcde", formatted)
+        self.assertIn("fghij", formatted)
+        self.assertIn("[...]", formatted)
+        self.assertIn("chunk_id: chunk-1", formatted)
+        self.assertIn("chunk_id: chunk-2", formatted)
+
+    def test_does_not_merge_across_block_offset_reset(self) -> None:
+        first = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-0",
+            text="А" * 100,
+            metadata={"chunk_index": 0, "char_start": 0, "char_end": 100},
+            subquery_ids=[1],
+        )
+        second = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-2",
+            text="Б" * 100,
+            metadata={"chunk_index": 2, "char_start": 0, "char_end": 100},
+            subquery_ids=[1],
+        )
+
+        formatted = format_context([first, second])
+
+        self.assertIn("[...]", formatted)
 
     def test_metadata_hints_extract_status_and_edition(self) -> None:
         chunk = ContextChunk(
