@@ -17,6 +17,7 @@ from agents.clarification import (
     detect_context_ambiguity,
     last_assistant_asked_question,
 )
+from agents.citations import append_sources, humanize_citations
 from agents.config import Settings
 from agents.context import merge_contexts, normalize_chunk
 from agents.dialog import parse_dialog, queries_similar
@@ -573,6 +574,13 @@ def make_finalize_node() -> Node:
                     )
             elif verification is not None and verification.verdict != "pass":
                 status = "partial"
+
+        if status in {"answered", "partial"}:
+            answer, source_refs = humanize_citations(
+                answer,
+                list(state.get("contexts") or []),
+            )
+            answer = append_sources(answer, source_refs)
 
         logger.info(
             "Итог по вопросу: status=%s, LLM-вызовов=%s, токенов≈%s",

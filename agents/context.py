@@ -21,6 +21,7 @@ __all__ = [
     "merge_contexts",
     "metadata_hints",
     "normalize_chunk",
+    "source_label",
 ]
 
 _METADATA_HINT_KEYS = (
@@ -85,6 +86,36 @@ _INVALID_STATUS_PATTERNS = (
     re.compile(r"недейств", re.IGNORECASE),
 )
 _ACTIVE_STATUS_RE = re.compile(r"\bдействует\b", re.IGNORECASE)
+
+_LAW_PREFIX = "законы__"
+_COMPANY_PREFIX = "документы компании__"
+_LAW_LABEL_RE = re.compile(
+    r"^(?P<code>.+?)_ст(?P<article>\d+(?:\.\d+)*)(?:_|$)",
+    re.IGNORECASE,
+)
+_FZ_CODE_RE = re.compile(r"^(\d+)ФЗ$", re.IGNORECASE)
+_CONTRACT_HEAD_RE = re.compile(
+    r"^(?P<kind>ДОГОВОР[^№]*?)\s*№\s*(?P<number>[^\s,]+)",
+    re.IGNORECASE,
+)
+_ADDENDUM_HEAD_RE = re.compile(
+    r"^(?P<kind>ДОПОЛНИТЕЛЬНОЕ\s+СОГЛАШЕНИЕ)\s*№\s*(?P<number>[^\s,]+)"
+    r"(?:\s+к\s+договору(?:\s+[А-ЯЁA-Z]+)?\s*№\s*(?P<base>[^\s,]+))?",
+    re.IGNORECASE,
+)
+_ADDENDUM_STEM_RE = re.compile(
+    r"^(?:Доп\.?|Дополнительное)\s+соглашение\s+(\d+)\s+к\s+договору\s+(.+)$",
+    re.IGNORECASE,
+)
+_REGULATION_STEM_RE = re.compile(
+    r"^(?P<name>Регламент[^()]*?)\s+ред\.?\s*(?P<edition>\d{4})\s*"
+    r"(?P<status>\([^)]*\))?$",
+    re.IGNORECASE,
+)
+_COMPACT_CONTRACT_NUMBER_RE = re.compile(
+    r"^([А-ЯЁA-Z]{1,8}-\d{1,4})-(\d{2,4})$",
+    re.IGNORECASE,
+)
 
 
 def _as_text(value: Any) -> str:
@@ -246,6 +277,116 @@ def _normalize_status_value(value: Any) -> str | None:
     return None
 
 
+def _doc_stem(doc_id: str) -> str:
+    stem = _as_text(doc_id)
+    for prefix in (_LAW_PREFIX, _COMPANY_PREFIX):
+        if stem.startswith(prefix):
+            stem = stem[len(prefix):]
+            break
+    lowered = stem.lower()
+    for suffix in (".txt", ".md", ".docx"):
+        if lowered.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return stem.strip()
+
+
+def _normalize_compact_contract_number(value: str) -> str:
+    text = _as_text(value)
+    match = _COMPACT_CONTRACT_NUMBER_RE.match(text)
+    if match is not None:
+        return f"{match.group(1)}/{match.group(2)}"
+    return text
+
+
+def _contract_kind(value: str) -> str:
+    words = _as_text(value).split()
+    if not words:
+        return "Договор"
+    kind = " ".join(words[:2])
+    return kind.capitalize() if kind.isupper() else kind
+
+
+def _company_stem_label(stem: str) -> str:
+    text = _as_text(stem)
+    addendum = _ADDENDUM_STEM_RE.match(text)
+    if addendum is not None:
+        number = _normalize_compact_contract_number(addendum.group(2))
+        return f"Доп. соглашение № {addendum.group(1)} к договору № {number}"
+
+    regulation = _REGULATION_STEM_RE.match(text)
+    if regulation is not None:
+        name = regulation.group("name").strip()
+        edition = regulation.group("edition")
+        status = (regulation.group("status") or "").lower()
+        suffix = ", утратил силу" if "утратил" in status else ""
+        return f"{name} (ред. {edition}{suffix})"
+
+    return text
+
+
+def _company_label(stem: str, header: str) -> str:
+    head = _as_text(header)
+
+    addendum = _ADDENDUM_HEAD_RE.match(head)
+    if addendum is not None:
+        number = _normalize_compact_contract_number(addendum.group("number"))
+        base = _normalize_compact_contract_number(addendum.group("base") or "")
+        if base:
+            return f"Доп. соглашение № {number} к договору № {base}"
+        return f"Доп. соглашение № {number}"
+
+    contract = _CONTRACT_HEAD_RE.match(head)
+    if contract is not None:
+        kind = _contract_kind(contract.group("kind"))
+        number = _normalize_compact_contract_number(contract.group("number"))
+        return f"{kind} № {number}"
+
+    return _company_stem_label(stem)
+
+
+def _law_label(stem: str) -> str | None:
+    match = _LAW_LABEL_RE.match(stem)
+    if match is None:
+        return None
+    code = _FZ_CODE_RE.sub(r"\1-ФЗ", match.group("code").strip())
+    article = match.group("article").strip()
+    return f"{code}, ст. {article}"
+
+
+def _build_source_label(
+    doc_id: str,
+    header: str,
+    metadata: Mapping[str, Any],
+) -> str:
+    stem = _doc_stem(doc_id)
+
+    if doc_id.startswith(_LAW_PREFIX):
+        law = _law_label(stem)
+        if law:
+            return law
+
+    if doc_id.startswith(_COMPANY_PREFIX):
+        return _company_label(stem, header)
+
+    title = _as_text(metadata.get("document_title")) or _as_text(header)
+    return title or stem or _as_text(doc_id)
+
+
+def source_label(chunk: ContextChunk) -> str:
+    """Вернуть человекочитаемое название источника."""
+    metadata = chunk.metadata or {}
+    stored = _as_text(metadata.get("source_label"))
+    if stored:
+        return stored
+    header = (
+        _as_text(metadata.get("head_doc"))
+        or _as_text(metadata.get("title"))
+        or _as_text(metadata.get("document_title"))
+    )
+    return _build_source_label(chunk.doc_id, header, metadata)
+
+
 def document_title(chunk: ContextChunk) -> str:
     """Вернуть человекочитаемый заголовок документа."""
     metadata = chunk.metadata
@@ -264,6 +405,10 @@ def enrich_metadata(metadata: Any, doc_id: str) -> dict[str, Any]:
     document = header or _as_text(doc_id)
 
     enriched["document_title"] = document
+    enriched["source_label"] = (
+        _as_text(enriched.get("source_label"))
+        or _build_source_label(doc_id, header, enriched)
+    )
     enriched["doc_number"] = (
         _as_text(enriched.get("doc_number"))
         or _parse_doc_number(header, doc_id)
@@ -538,6 +683,9 @@ def _format_document(doc_id: str, chunks: list[ContextChunk]) -> str:
         lines.append(f"title: {title}")
     if doc_id:
         lines.append(f"doc_id: {doc_id}")
+    label = source_label(first)
+    if label:
+        lines.append(f"source_label: {label}")
 
     hints = metadata_hints(first)
     for key in _METADATA_HINT_KEYS:

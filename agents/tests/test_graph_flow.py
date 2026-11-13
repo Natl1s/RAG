@@ -243,6 +243,22 @@ class GraphFlowTest(unittest.TestCase):
         self.assertIn("Исправленный ответ", answer.answer)
         revise.assert_awaited_once()
 
+    def test_finalize_humanizes_sources(self) -> None:
+        self._patch("understand_query", AsyncMock(return_value=make_understand()))
+        self._patch("grade_retrieval", AsyncMock(return_value=make_grade("full")))
+        self._patch(
+            "generate_answer",
+            AsyncMock(return_value="Ответ [doc_id: doc-1]"),
+        )
+        self._patch("verify_answer", AsyncMock(return_value=make_verify("pass")))
+        service = AgentService(self.rag, settings=self.settings)
+
+        answer = asyncio.run(service.aanswer("u-1", "налоги"))
+
+        self.assertIn("[Документ]", answer.answer)
+        self.assertNotIn("doc_id", answer.answer)
+        self.assertIn("Источники:", answer.answer)
+
     def test_rewrite_is_limited_per_round(self) -> None:
         subqueries = [
             SubQuery(

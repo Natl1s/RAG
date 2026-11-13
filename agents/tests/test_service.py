@@ -92,8 +92,10 @@ class AgentServiceTest(unittest.TestCase):
     def test_sync_answer_returns_generated_answer(self) -> None:
         answer = self.service.answer("u-1", "налоги")
 
-        self.assertIn("doc-1", answer)
+        self.assertIn("[Договор]", answer)
         self.assertIn("Ответ по документу", answer)
+        self.assertIn("Источники:", answer)
+        self.assertNotIn("doc_id", answer)
 
     def test_async_answer_returns_result(self) -> None:
         result = asyncio.run(self.service.aanswer("u-1", "налоги"))

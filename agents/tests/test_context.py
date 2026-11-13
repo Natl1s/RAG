@@ -7,6 +7,7 @@ from agents.context import (
     merge_contexts,
     metadata_hints,
     normalize_chunk,
+    source_label,
 )
 from agents.state import ContextChunk
 from rag.index.contracts import RetrievedChunk
@@ -179,6 +180,98 @@ class MergeContextsTest(unittest.TestCase):
         self.assertEqual([chunk.doc_id for chunk in merged], ["doc-0", "doc-1"])
 
 
+class SourceLabelTest(unittest.TestCase):
+    def test_law_label(self) -> None:
+        chunk = ContextChunk(
+            doc_id="законы__152ФЗ_ст9_действующая.txt",
+            chunk_id="law-1",
+            text="Текст",
+            metadata={
+                "head_doc": (
+                    "Статья 9. Согласие субъекта персональных данных. "
+                    'Федеральный закон от 27.07.2006 N 152-ФЗ "О персональных данных"'
+                )
+            },
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(source_label(chunk), "152-ФЗ, ст. 9")
+
+    def test_contract_label_from_head(self) -> None:
+        chunk = ContextChunk(
+            doc_id="документы компании__Договор аренды А-08-2024 Северный Склад.txt",
+            chunk_id="contract-1",
+            text="Текст",
+            metadata={
+                "head_doc": (
+                    "ДОГОВОР АРЕНДЫ НЕЖИЛОГО ПОМЕЩЕНИЯ № А-08/2024 "
+                    "Московская область, г. Химки — 1 августа 2024 г."
+                )
+            },
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(source_label(chunk), "Договор аренды № А-08/2024")
+
+    def test_addendum_label_from_head(self) -> None:
+        chunk = ContextChunk(
+            doc_id="документы компании__Доп соглашение 1 к договору П-17-2024.txt",
+            chunk_id="addendum-1",
+            text="Текст",
+            metadata={
+                "head_doc": (
+                    "ДОПОЛНИТЕЛЬНОЕ СОГЛАШЕНИЕ № 1 к договору поставки "
+                    "№ П-17/2024 от 12 февраля 2024 г."
+                )
+            },
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(
+            source_label(chunk),
+            "Доп. соглашение № 1 к договору № П-17/2024",
+        )
+
+    def test_regulation_label_from_doc_id(self) -> None:
+        chunk = ContextChunk(
+            doc_id=(
+                "документы компании__Регламент согласования договоров "
+                "ред 2023 (утратил силу).txt"
+            ),
+            chunk_id="reg-1",
+            text="Текст",
+            metadata={},
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(
+            source_label(chunk),
+            "Регламент согласования договоров (ред. 2023, утратил силу)",
+        )
+
+    def test_falls_back_to_document_title(self) -> None:
+        chunk = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="Текст",
+            metadata={"title": "Налоговый кодекс"},
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(source_label(chunk), "Налоговый кодекс")
+
+    def test_uses_stored_source_label(self) -> None:
+        chunk = ContextChunk(
+            doc_id="doc-1",
+            chunk_id="chunk-1",
+            text="Текст",
+            metadata={"source_label": "ТК РФ, ст. 70"},
+            subquery_ids=[1],
+        )
+
+        self.assertEqual(source_label(chunk), "ТК РФ, ст. 70")
+
+
 class FormatContextTest(unittest.TestCase):
     def test_includes_sources_and_metadata(self) -> None:
         chunk = ContextChunk(
@@ -194,6 +287,7 @@ class FormatContextTest(unittest.TestCase):
 
         self.assertIn("title: Налоговый кодекс", formatted)
         self.assertIn("doc_id: doc-1", formatted)
+        self.assertIn("source_label: Налоговый кодекс", formatted)
         self.assertIn("edition: 2024", formatted)
         self.assertIn("Текст нормы", formatted)
 
