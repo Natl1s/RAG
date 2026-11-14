@@ -695,13 +695,16 @@ def _format_document(doc_id: str, chunks: list[ContextChunk]) -> str:
 
     header = "\n".join(lines)
     segments: list[str] = []
-    emitted_infos: set[str] = set()
-    for chunk in chunks:
+
+    for i, chunk in enumerate(chunks):
         info = _as_text(chunk.metadata.get("info"))
         info_line = ""
-        if info and info not in emitted_infos:
-            emitted_infos.add(info)
-            info_line = f"chunk_info: {info}\n"
+
+        # Показываем info, если он есть.
+        # Опционально: можно скрывать, только если он в точности равен info предыдущего чанка
+        prev_info = _as_text(chunks[i - 1].metadata.get("info")) if i > 0 else ""
+        if info and info != prev_info:
+            info_line = f"[Контекст фрагмента: {info}]\n"
 
         chunk_ids = chunk.metadata.get("chunk_ids")
         if isinstance(chunk_ids, (list, tuple)) and chunk_ids:

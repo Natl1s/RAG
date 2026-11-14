@@ -18,7 +18,7 @@ from agents.clarification import (
 )
 from agents.citations import append_sources, humanize_citations
 from agents.config import Settings
-from agents.context import merge_contexts, metadata_hints, normalize_chunk
+from agents.context import merge_contexts, normalize_chunk
 from agents.dialog import parse_dialog, queries_similar
 from agents.llm import (
     clarification_answer,
@@ -189,103 +189,17 @@ def _interleave_chunks(groups: list[list[Any]]) -> list[Any]:
     return result
 
 
-def _context_source_label(chunk: Any) -> str:
-    metadata = getattr(chunk, "metadata", None) or {}
-    label = str(metadata.get("source_label") or "").strip()
-    return label or str(getattr(chunk, "doc_id", "") or "").strip()
-
-
-def _section_query(subquery: SubQuery, contexts: list[Any]) -> str:
-    related = [
-        chunk for chunk in contexts if subquery.id in chunk.subquery_ids
-    ]
-    if not related:
-        return ""
-
-    counts: dict[str, int] = {}
-    status_rank: dict[str, int] = {}
-    order: list[str] = []
-    for chunk in related:
-        label = _context_source_label(chunk)
-        if not label:
-            continue
-        if label not in counts:
-            order.append(label)
-            counts[label] = 0
-        counts[label] += 1
-        status = metadata_hints(chunk).get("status", "").lower()
-        rank = 0
-        if status == "действует":
-            rank = 2
-        elif status and "утратил" not in status:
-            rank = 1
-        status_rank[label] = max(status_rank.get(label, 0), rank)
-
-    if not order:
-        return ""
-
-    best_label = order[0]
-    best_key = (status_rank.get(best_label, 0), counts[best_label])
-    for label in order[1:]:
-        key = (status_rank.get(label, 0), counts[label])
-        if key > best_key:
-            best_label = label
-            best_key = key
-
-    aspects = " ".join(
-        aspect.strip()
-        for aspect in subquery.missing_aspects
-        if aspect and aspect.strip()
-    )
-    query = " ".join(
-        part
-        for part in [best_label, "права и обязанности сторон", aspects]
-        if part
-    )
-    return query[:400].strip()
-
-
 def make_expand_query_node() -> Node:
-    """Добавить generic section-запрос для непокрытых подзапросов."""
+    """Сохранить узел совместимости без добавления generic-запросов.
+
+    Переформулировкой занимается ``make_rewrite_node``: он сохраняет
+    исходный запрос и добавляет конкретику из ``missing_aspects`` через LLM.
+    Универсальные юридические клише здесь намеренно не добавляются, чтобы
+    не размывать retrieval.
+    """
 
     def expand_query(state: AgentState) -> dict[str, Any]:
-        contexts = list(state.get("contexts") or [])
-        updated: list[SubQuery] = []
-        added = 0
-
-        for subquery in _subqueries(state):
-            section_query = ""
-            if subquery.coverage in {"none", "partial"} and (
-                subquery.coverage == "none" or subquery.missing_aspects
-            ):
-                section_query = _section_query(subquery, contexts)
-
-            if (
-                not section_query
-                or section_query == subquery.text
-                or section_query in subquery.query_variants
-            ):
-                updated.append(subquery)
-                continue
-
-            updated.append(
-                subquery.model_copy(
-                    update={
-                        "query_variants": [
-                            *subquery.query_variants,
-                            section_query,
-                        ]
-                    }
-                )
-            )
-            added += 1
-
-        if added:
-            logger.info(
-                "Добавлено generic section-запросов: %s",
-                added,
-            )
-        return {"subqueries": updated}
+        return {"subqueries": list(_subqueries(state))}
 
     return expand_query
 
@@ -485,7 +399,11 @@ def make_rewrite_node(settings: Settings) -> Node:
         updated: list[SubQuery] = []
 
         for subquery in subqueries:
-            if subquery.id not in target_ids or rewrite_calls >= rewrite_limit:
+            if (
+                subquery.id not in target_ids
+                or subquery.attempts >= 1
+                or rewrite_calls >= rewrite_limit
+            ):
                 updated.append(subquery)
                 continue
 
@@ -758,8 +676,14 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
         retrieval_attempts < settings.max_retrieval_attempts
         and total_steps < settings.max_total_llm_calls
     )
-    if coverage in {"partial", "none"} and can_retry:
+    can_rewrite = any(
+        subquery.coverage != "full" and subquery.attempts < 1
+        for subquery in state.get("subqueries", [])
+    )
+    if coverage in {"partial", "none"} and can_retry and can_rewrite:
         return "rewrite"
+    if coverage in {"partial", "none"} and total_steps < settings.max_total_llm_calls:
+        return "generate"
     if coverage == "none":
         return "finalize"
     return "generate" if total_steps < settings.max_total_llm_calls else "finalize"

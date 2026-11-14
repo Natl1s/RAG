@@ -312,8 +312,8 @@ class FormatContextTest(unittest.TestCase):
 
         formatted = format_context(chunks)
 
-        self.assertIn("chunk_info: Описание списка", formatted)
-        self.assertEqual(formatted.count("chunk_info: Описание списка"), 1)
+        self.assertIn("[Контекст фрагмента: Описание списка]", formatted)
+        self.assertEqual(formatted.count("[Контекст фрагмента: Описание списка]"), 1)
         self.assertIn("Первый пункт", formatted)
         self.assertIn("Второй пункт", formatted)
 

@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from agents.config import Settings
-from agents.nodes import route_after_grade
+from agents.nodes import make_rewrite_node, route_after_grade
 from agents.service import AgentService
 from agents.state import (
     ClarificationRequest,
@@ -221,7 +221,6 @@ class GraphFlowTest(unittest.TestCase):
             [
                 "налоги",
                 "налоги и сборы",
-                "Документ права и обязанности сторон нет данных",
             ],
         )
 
@@ -296,6 +295,41 @@ class GraphFlowTest(unittest.TestCase):
         state["coverage"] = "none"
         self.assertEqual(route_after_grade(state, self.settings), "finalize")
 
+    def test_rewrite_is_not_repeated_for_subquery(self) -> None:
+        subquery = SubQuery(
+            id=1,
+            text="налоги и сборы",
+            coverage="none",
+            attempts=1,
+        )
+        rewrite = Mock(side_effect=AssertionError("rewrite must not be called"))
+        self._patch("rewrite_subquery", rewrite)
+
+        result = make_rewrite_node(self.settings)(
+            {
+                "subqueries": [subquery],
+                "contexts": [],
+                "tried_queries": [],
+                "total_steps": 0,
+                "used_tokens": 0,
+            }
+        )
+
+        self.assertEqual(result["subqueries"], [subquery])
+        rewrite.assert_not_called()
+        self.assertEqual(
+            route_after_grade(
+                {
+                    "coverage": "none",
+                    "subqueries": [subquery],
+                    "retrieval_attempts": 2,
+                    "total_steps": 2,
+                },
+                self.settings,
+            ),
+            "generate",
+        )
+
     def test_hard_budget_prevents_llm_calls(self) -> None:
         builder = patch(
             "agents.llm._build_llm",
@@ -328,7 +362,7 @@ class GraphFlowTest(unittest.TestCase):
         answer = asyncio.run(service.aanswer("u-1", "неизвестный вопрос"))
 
         self.assertIn("нет документов", answer.answer)
-        self.assertEqual(len(self.rag.calls), 3)
+        self.assertEqual(len(self.rag.calls), 2)
 
 
 if __name__ == "__main__":
