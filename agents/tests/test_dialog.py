@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from agents.dialog import format_history, parse_dialog, queries_similar
+from agents.dialog import (
+    format_history,
+    history_records,
+    parse_dialog,
+    queries_similar,
+)
 from agents.state import DialogTurn
 
 
@@ -54,6 +59,24 @@ class FormatHistoryTest(unittest.TestCase):
         self.assertNotIn("первый", formatted)
         self.assertIn("Ассистент: ответ", formatted)
         self.assertIn("Пользователь: второй", formatted)
+
+    def test_history_records_limits_and_keeps_roles(self) -> None:
+        history = [
+            DialogTurn(role="user", text="первый"),
+            DialogTurn(role="assistant", text="ответ"),
+            DialogTurn(role="user", text="второй"),
+            DialogTurn(role="system", text="третий"),
+        ]
+
+        records = history_records(history, limit=2)
+
+        self.assertEqual(
+            records,
+            [
+                {"role": "user", "text": "второй"},
+                {"role": "system", "text": "третий"},
+            ],
+        )
 
 
 class QueriesSimilarTest(unittest.TestCase):

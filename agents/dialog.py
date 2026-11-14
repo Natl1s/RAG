@@ -11,7 +11,13 @@ import re
 
 from agents.state import DialogTurn
 
-__all__ = ["format_history", "normalize_query", "parse_dialog", "queries_similar"]
+__all__ = [
+    "format_history",
+    "history_records",
+    "normalize_query",
+    "parse_dialog",
+    "queries_similar",
+]
 
 _ROLE_RE = re.compile(
     r"(?im)^\s*(Пользователь|Ассистент|Система|User|Assistant|System)\s*:\s*"
@@ -75,6 +81,25 @@ def format_history(history: list[DialogTurn], limit: int = 10) -> str:
         for turn in selected
         if turn.text.strip()
     )
+
+
+def history_records(
+    history: list[DialogTurn],
+    limit: int = 10,
+) -> list[dict[str, str]]:
+    """Собрать историю как недоверенные данные для промпта."""
+    if not history:
+        return []
+
+    selected = history[-limit:] if limit > 0 else history
+    records: list[dict[str, str]] = []
+    for turn in selected:
+        text = turn.text.strip()
+        if not text:
+            continue
+        role = turn.role if turn.role in _ROLE_LABELS else "unknown"
+        records.append({"role": role, "text": text})
+    return records
 
 
 def normalize_query(text: str) -> str:
