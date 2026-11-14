@@ -132,7 +132,7 @@ def main() -> None:
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
     index = load_index(Path(env('DATA_DIR')) / 'index.csv')
     documents = join(documents, index)
-    # questions = questions[:2]
+    questions = questions[:1]
     rag_client = RAG(RAGConfig())
     rag_client.build(documents)
     service = build_local_service(rag_client)
