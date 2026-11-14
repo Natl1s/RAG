@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import os
 import re
@@ -126,9 +127,19 @@ def select_documents(question: str, rag_client) -> list[RetrievedChunk]:
 
 
 def generate(docs: list[RetrievedChunk]) -> str:
-    """Пример вызова LLM_MODEL через POST /chat/completions."""
-    context = "\n\n".join(chunk.doc_id + "\n" + chunk.metadata["head_doc"] + "\n" + chunk.text for chunk in docs)
-    return context
+    """Оформить все поля найденных чанков для записи в CSV."""
+    return "\n\n".join(
+        f"{'=' * 40}\n"
+        f"РЕЗУЛЬТАТ № {rank}\n"
+        f"НАЗВАНИЕ ДОКА: {chunk.doc_id}\n"
+        f"ИДЕНТИФИКАТОР ЧАНКА: {chunk.chunk_id}\n"
+        f"ОЦЕНКА РЕЛЕВАНТНОСТИ: {chunk.score}\n"
+        f"ШАПКА:\n{chunk.metadata.get('head_doc', '')}\n\n"
+        f"МЕТАИНФОРМАЦИЯ:\n"
+        f"{json.dumps({key: value for key, value in chunk.metadata.items() if key != 'head_doc'}, ensure_ascii=False, indent=2, default=str)}\n\n"
+        f"ТЕКСТ ЧАНКА:\n{chunk.text}"
+        for rank, chunk in enumerate(docs, start=1)
+    )
 
 def join(a: list[tuple[str, str]],
          b: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
@@ -137,19 +148,23 @@ def join(a: list[tuple[str, str]],
 
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
-    documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
-    index = load_index(Path("dataset/index.csv"))
-    documents = join(documents, index)
+    # documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
+    import pandas as pd
+    docs = "/home/bibeda/psb-rag/result_chunks.csv"
+    docs = pd.read_csv(docs)
+    
+    # index = load_index(Path("dataset/index.csv"))
+    # documents = join(documents, index)
 
     rag_client = RAG(RAGConfig())
-    rag_client.build(documents)
+    rag_client.build(docs)
 
     def work(position: int, question: str) -> tuple[int, str]:
         try:
             selected = select_documents(question, rag_client)
-            print(len(selected))
-            selected = rag_client.do_rerank(question, selected)
-            print(len(selected))
+            # print(len(selected))
+            # selected = rag_client.do_rerank(question, selected)
+            # print(len(selected))
             return position, generate(selected)
         except Exception as exc:
             print(f"Ошибка вопроса {position}: {type(exc).__name__}", file=sys.stderr)

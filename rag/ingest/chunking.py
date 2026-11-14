@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from rag.ingest.preprocess import clean_text
 from rag.ingest.schema import Chunk, Document
 from rag.log_config import setup_logging
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 logger = logging.getLogger(__name__)
 PROGRESS_DOCS = 50
@@ -76,8 +77,15 @@ def chunk_document(
     text = clean_text(doc.text)
     if not text:
         return []
+    
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size_chars,
+        chunk_overlap=overlap_chars,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
 
-    blocks = _split_into_blocks(text)
+    blocks = splitter.split_text(text)
+
     chunks: list[Chunk] = []
     chunk_index = 0
 

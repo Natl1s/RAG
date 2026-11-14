@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from rag.embeddings.embedders import SentenceTransformerEmbeddings, ExternalEmbeddings
-from rag.rerankers.reranker import Reranker, ExternalReranker
+from rag.rerankers.reranker import Reranker, ExternalReranker, QwenReranker
 @dataclass
 class RAGConfig:
     # Чанкер
     chunk_size: int = 600
-    chunk_overlap: int = 20
+    chunk_overlap: int = 50
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
     embedding_model: str = "models/multilingual-e5-small"
@@ -24,11 +24,12 @@ class RAGConfig:
     use_hybrid: bool = True
 
     # Фильтрация чанков при дальнейшей обработке RAG: допустимая длина текста.
-    min_chunk_chars: int = 50
+    min_chunk_chars: int = 0
     max_chunk_chars: int = 10000
 
     # Reranker parametr
     reranker: object = None
+    reranker_model: str = None #"models/Qwen3-Reranker-0.6B"
     n_reranks: int = 3
 
     # Инициализация эмбеддера по выбранному способу вычисления.
@@ -39,7 +40,14 @@ class RAGConfig:
                 batch_size=self.batch_size,
             )
 
-            self.reranker = Reranker(self)
+            if self.reranker_model != None:
+                self.reranker = QwenReranker(
+                    model_name=self.reranker_model,
+                    top_k=self.n_reranks
+                )
+
+            else:
+                self.reranker = Reranker(self)
 
         elif self.embedding_type == "remote":
             if self.client is None:
