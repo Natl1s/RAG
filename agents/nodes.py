@@ -18,7 +18,7 @@ from agents.clarification import (
 )
 from agents.citations import append_sources, humanize_citations
 from agents.config import Settings
-from agents.context import merge_contexts, normalize_chunk
+from agents.context import merge_contexts, metadata_hints, normalize_chunk
 from agents.dialog import parse_dialog, queries_similar
 from agents.llm import (
     clarification_answer,
@@ -28,7 +28,6 @@ from agents.llm import (
     grade_retrieval,
     no_data_answer,
     out_of_scope_answer,
-    revise_answer,
     rewrite_subquery,
     understand_query,
     verify_answer,
@@ -39,19 +38,18 @@ from rag.rag_pipeline import RAG
 
 __all__ = [
     "make_clarify_node",
+    "make_expand_query_node",
     "make_finalize_node",
     "make_generate_node",
     "make_grade_node",
     "make_parse_dialog_node",
     "make_refuse_node",
     "make_retrieve_node",
-    "make_revise_node",
     "make_rewrite_node",
     "make_understand_node",
     "make_verify_node",
     "route_after_grade",
     "route_after_understand",
-    "route_after_verify",
 ]
 
 logger = logging.getLogger(__name__)
@@ -160,49 +158,200 @@ def make_understand_node(settings: Settings) -> Node:
     return understand
 
 
+def _retrieval_queries(subquery: SubQuery) -> list[str]:
+    queries: list[str] = []
+    for value in [subquery.text, *subquery.query_variants]:
+        query = (value or "").strip()
+        if query and query not in queries:
+            queries.append(query)
+    return queries
+
+
+def _interleave_chunks(groups: list[list[Any]]) -> list[Any]:
+    """Смешать результаты запросов по рангам, сохраняя порядок выдачи."""
+    result: list[Any] = []
+    seen: set[str] = set()
+    max_len = max((len(group) for group in groups), default=0)
+    for rank in range(max_len):
+        for group in groups:
+            if rank >= len(group):
+                continue
+            chunk = group[rank]
+            key = (
+                getattr(chunk, "chunk_id", "")
+                or getattr(chunk, "doc_id", "")
+                or str(id(chunk))
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(chunk)
+    return result
+
+
+def _context_source_label(chunk: Any) -> str:
+    metadata = getattr(chunk, "metadata", None) or {}
+    label = str(metadata.get("source_label") or "").strip()
+    return label or str(getattr(chunk, "doc_id", "") or "").strip()
+
+
+def _section_query(subquery: SubQuery, contexts: list[Any]) -> str:
+    related = [
+        chunk for chunk in contexts if subquery.id in chunk.subquery_ids
+    ]
+    if not related:
+        return ""
+
+    counts: dict[str, int] = {}
+    status_rank: dict[str, int] = {}
+    order: list[str] = []
+    for chunk in related:
+        label = _context_source_label(chunk)
+        if not label:
+            continue
+        if label not in counts:
+            order.append(label)
+            counts[label] = 0
+        counts[label] += 1
+        status = metadata_hints(chunk).get("status", "").lower()
+        rank = 0
+        if status == "действует":
+            rank = 2
+        elif status and "утратил" not in status:
+            rank = 1
+        status_rank[label] = max(status_rank.get(label, 0), rank)
+
+    if not order:
+        return ""
+
+    best_label = order[0]
+    best_key = (status_rank.get(best_label, 0), counts[best_label])
+    for label in order[1:]:
+        key = (status_rank.get(label, 0), counts[label])
+        if key > best_key:
+            best_label = label
+            best_key = key
+
+    aspects = " ".join(
+        aspect.strip()
+        for aspect in subquery.missing_aspects
+        if aspect and aspect.strip()
+    )
+    query = " ".join(
+        part
+        for part in [best_label, "права и обязанности сторон", aspects]
+        if part
+    )
+    return query[:400].strip()
+
+
+def make_expand_query_node() -> Node:
+    """Добавить generic section-запрос для непокрытых подзапросов."""
+
+    def expand_query(state: AgentState) -> dict[str, Any]:
+        contexts = list(state.get("contexts") or [])
+        updated: list[SubQuery] = []
+        added = 0
+
+        for subquery in _subqueries(state):
+            section_query = ""
+            if subquery.coverage in {"none", "partial"} and (
+                subquery.coverage == "none" or subquery.missing_aspects
+            ):
+                section_query = _section_query(subquery, contexts)
+
+            if (
+                not section_query
+                or section_query == subquery.text
+                or section_query in subquery.query_variants
+            ):
+                updated.append(subquery)
+                continue
+
+            updated.append(
+                subquery.model_copy(
+                    update={
+                        "query_variants": [
+                            *subquery.query_variants,
+                            section_query,
+                        ]
+                    }
+                )
+            )
+            added += 1
+
+        if added:
+            logger.info(
+                "Добавлено generic section-запросов: %s",
+                added,
+            )
+        return {"subqueries": updated}
+
+    return expand_query
+
+
 def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
     """Создать узел поиска в RAG по всем подзапросам."""
 
     def retrieve(state: AgentState) -> dict[str, Any]:
         subqueries = _subqueries(state)
         tried_queries = list(state.get("tried_queries") or [])
-        collected = []
+        previous_contexts = list(state.get("contexts") or [])
+        per_subquery: list[list[Any]] = []
 
         for subquery in subqueries:
-            query = (subquery.text or "").strip()
-            if not query:
-                continue
-
-            try:
-                chunks = rag.search_chunks(query)
-            except Exception as exc:
-                logger.warning(
-                    "RAG поиск упал для подзапроса %s: %s: %s",
-                    subquery.id,
-                    type(exc).__name__,
-                    exc,
-                )
-                chunks = []
-
-            logger.info(
-                "RAG поиск: подзапрос=%s, запрос=%r, найдено=%s",
-                subquery.id,
-                query,
-                len(chunks or []),
-            )
-            for chunk in chunks or []:
-                normalized = normalize_chunk(chunk, subquery.id)
-                if normalized is None:
-                    logger.debug(
-                        "Пропущен пустой RAG-чанк: doc_id=%r, chunk_id=%r",
-                        getattr(chunk, "doc_id", None),
-                        getattr(chunk, "chunk_id", None),
-                    )
+            new_groups: list[list[Any]] = []
+            for query in _retrieval_queries(subquery):
+                if not query or query in tried_queries:
                     continue
-                collected.append(normalized)
 
-            if query not in tried_queries:
-                tried_queries.append(query)
+                try:
+                    chunks = rag.search_chunks(query)
+                except Exception as exc:
+                    logger.warning(
+                        "RAG поиск упал для подзапроса %s: %s: %s",
+                        subquery.id,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    chunks = []
+
+                logger.info(
+                    "RAG поиск: подзапрос=%s, запрос=%r, найдено=%s",
+                    subquery.id,
+                    query,
+                    len(chunks or []),
+                )
+                query_chunks: list[Any] = []
+                for chunk in chunks or []:
+                    normalized = normalize_chunk(chunk, subquery.id)
+                    if normalized is None:
+                        logger.debug(
+                            "Пропущен пустой RAG-чанк: doc_id=%r, chunk_id=%r",
+                            getattr(chunk, "doc_id", None),
+                            getattr(chunk, "chunk_id", None),
+                        )
+                        continue
+                    query_chunks.append(normalized)
+                if query_chunks:
+                    new_groups.append(query_chunks)
+
+                if query not in tried_queries:
+                    tried_queries.append(query)
+
+            old_chunks = [
+                chunk
+                for chunk in previous_contexts
+                if subquery.id in chunk.subquery_ids
+            ]
+            per_subquery.append(_interleave_chunks([old_chunks, *new_groups]))
+
+        collected: list[Any] = []
+        for subquery_chunks in per_subquery:
+            collected.extend(subquery_chunks)
+        collected.extend(
+            chunk for chunk in previous_contexts if not chunk.subquery_ids
+        )
 
         return {
             "subqueries": subqueries,
@@ -364,12 +513,17 @@ def make_rewrite_node(settings: Settings) -> Node:
             new_text = (new_text or "").strip() or subquery.text
 
             if new_text != subquery.text:
+                old_text = (subquery.text or "").strip()
+                variants = list(subquery.query_variants)
+                if old_text and old_text not in variants:
+                    variants.append(old_text)
                 updated.append(
                     subquery.model_copy(
                         update={
                             "text": new_text,
                             "coverage": None,
                             "missing_aspects": [],
+                            "query_variants": variants,
                             "attempts": subquery.attempts + 1,
                         }
                     )
@@ -381,19 +535,9 @@ def make_rewrite_node(settings: Settings) -> Node:
                     )
                 )
 
-            if new_text not in tried_queries:
-                tried_queries.append(new_text)
-
-        kept_contexts = [
-            chunk
-            for chunk in (state.get("contexts") or [])
-            if not chunk.subquery_ids
-            or any(subquery_id not in target_ids for subquery_id in chunk.subquery_ids)
-        ]
-
         return {
             "subqueries": updated,
-            "contexts": kept_contexts,
+            "contexts": list(state.get("contexts") or []),
             "tried_queries": tried_queries,
             "total_steps": state.get("total_steps", 0) + rewrite_calls,
             "used_tokens": _add_usage(state, usage),
@@ -494,38 +638,6 @@ def make_verify_node(settings: Settings) -> Node:
         }
 
     return verify
-
-
-def make_revise_node(settings: Settings) -> Node:
-    """Создать узел исправления черновика ответа."""
-
-    def revise(state: AgentState) -> dict[str, Any]:
-        question = _question(state)
-        draft = (state.get("answer_draft") or "").strip()
-        contexts = list(state.get("contexts") or [])
-        verification = state.get("verification")
-
-        if not draft or not contexts or verification is None:
-            return {}
-
-        usage: list[TokenUsage] = []
-        revised = revise_answer(
-            question,
-            draft,
-            contexts,
-            verification,
-            settings=settings,
-            usage_sink=usage,
-            budget_remaining=_budget_remaining(state, settings),
-        )
-        return {
-            "answer_draft": revised,
-            "answer_attempts": state.get("answer_attempts", 0) + 1,
-            "total_steps": state.get("total_steps", 0) + 1,
-            "used_tokens": _add_usage(state, usage),
-        }
-
-    return revise
 
 
 def make_clarify_node() -> Node:
@@ -653,26 +765,3 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     return "generate" if total_steps < settings.max_total_llm_calls else "finalize"
 
 
-def route_after_verify(state: AgentState, settings: Settings) -> str:
-    """Маршрут после проверки ответа."""
-    verification = state.get("verification")
-    if verification is None or verification.verdict == "pass":
-        return "finalize"
-
-    total_steps = state.get("total_steps", 0)
-    if total_steps >= settings.max_total_llm_calls:
-        return "finalize"
-    if state.get("used_tokens", 0) >= settings.max_total_tokens_soft:
-        return "finalize"
-
-    if verification.verdict == "revise_answer":
-        if state.get("answer_attempts", 0) < settings.max_answer_attempts:
-            return "revise"
-        return "finalize"
-
-    if verification.verdict == "re_retrieve":
-        if state.get("retrieval_attempts", 0) < settings.max_retrieval_attempts:
-            return "rewrite"
-        return "finalize"
-
-    return "finalize"

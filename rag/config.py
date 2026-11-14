@@ -5,7 +5,7 @@ from rag.rerankers.reranker import Reranker, ExternalReranker
 class RAGConfig:
     # Чанкер
     chunk_size: int = 600
-    chunk_overlap: int = 20
+    chunk_overlap: int = 50
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
     embedding_model: str = "models/multilingual-e5-small"
@@ -15,7 +15,7 @@ class RAGConfig:
 
     # Поиск RAG: способ поиска, количество результатов и переранжирование.
     retrieval_type: str = "hybrid" # "bm25", "dense", or "hybrid"
-    top_k: int = 5
+    top_k: int = 10
     use_reranker: bool = False
 
     # Индексация RAG: используемые индексы и режимы поиска.

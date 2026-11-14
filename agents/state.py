@@ -76,6 +76,7 @@ class SubQuery(BaseModel):
     required: bool = True
     coverage: Coverage | None = None
     missing_aspects: list[str] = Field(default_factory=list)
+    query_variants: list[str] = Field(default_factory=list)
     attempts: int = 0
 
 
