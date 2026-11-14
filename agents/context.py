@@ -695,15 +695,24 @@ def _format_document(doc_id: str, chunks: list[ContextChunk]) -> str:
 
     header = "\n".join(lines)
     segments: list[str] = []
+    emitted_infos: set[str] = set()
     for chunk in chunks:
+        info = _as_text(chunk.metadata.get("info"))
+        info_line = ""
+        if info and info not in emitted_infos:
+            emitted_infos.add(info)
+            info_line = f"chunk_info: {info}\n"
+
         chunk_ids = chunk.metadata.get("chunk_ids")
         if isinstance(chunk_ids, (list, tuple)) and chunk_ids:
             ids = ", ".join(str(value) for value in chunk_ids if value)
-            segments.append(f"chunk_ids: {ids}\n{chunk.text.strip()}")
+            segments.append(f"{info_line}chunk_ids: {ids}\n{chunk.text.strip()}")
         elif chunk.chunk_id:
-            segments.append(f"chunk_id: {chunk.chunk_id}\n{chunk.text.strip()}")
+            segments.append(
+                f"{info_line}chunk_id: {chunk.chunk_id}\n{chunk.text.strip()}"
+            )
         else:
-            segments.append(chunk.text.strip())
+            segments.append(f"{info_line}{chunk.text.strip()}")
 
     body = "\n\n[...]\n\n".join(segment for segment in segments if segment)
     if header and body:

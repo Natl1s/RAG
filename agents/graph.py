@@ -33,7 +33,22 @@ def build_graph(
     settings: Settings,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
-    """Собрать production-граф с retrieval expansion и controlled finalize."""
+    """Собрать production-граф с retrieval expansion и controlled finalize.
+
+    Текущая схема:
+
+        START
+          -> parse_dialog
+          -> understand
+             -> refuse   -> END
+             -> clarify  -> END
+             -> retrieve
+                -> grade
+                   -> rewrite  -> expand -> rewrite -> retrieve
+                   -> generate -> verify -> finalize -> END
+                   -> clarify  -> END
+                   -> finalize -> END
+    """
     graph = StateGraph(AgentState)
     graph.add_node("parse_dialog", make_parse_dialog_node())
     graph.add_node("understand", make_understand_node(settings))

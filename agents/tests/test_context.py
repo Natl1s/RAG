@@ -20,7 +20,7 @@ class NormalizeChunkTest(unittest.TestCase):
                 doc_id="doc-1",
                 chunk_id="chunk-1",
                 text="Текст",
-                metadata={"title": "Договор"},
+                metadata={"title": "Договор", "info": "Описание раздела"},
                 score=0.5,
             ),
             2,
@@ -30,6 +30,7 @@ class NormalizeChunkTest(unittest.TestCase):
         self.assertEqual(chunk.doc_id, "doc-1")
         self.assertEqual(chunk.chunk_id, "chunk-1")
         self.assertEqual(chunk.metadata["title"], "Договор")
+        self.assertEqual(chunk.metadata["info"], "Описание раздела")
         self.assertEqual(chunk.metadata["document_title"], "Договор")
         self.assertIsNone(chunk.metadata["doc_number"])
         self.assertEqual(chunk.subquery_ids, [2])
@@ -290,6 +291,31 @@ class FormatContextTest(unittest.TestCase):
         self.assertIn("source_label: Налоговый кодекс", formatted)
         self.assertIn("edition: 2024", formatted)
         self.assertIn("Текст нормы", formatted)
+
+    def test_includes_chunk_info_without_repeating_same_value(self) -> None:
+        chunks = [
+            ContextChunk(
+                doc_id="doc-1",
+                chunk_id="chunk-1",
+                text="Первый пункт",
+                metadata={"info": "Описание списка"},
+                subquery_ids=[1],
+            ),
+            ContextChunk(
+                doc_id="doc-1",
+                chunk_id="chunk-2",
+                text="Второй пункт",
+                metadata={"info": "Описание списка"},
+                subquery_ids=[1],
+            ),
+        ]
+
+        formatted = format_context(chunks)
+
+        self.assertIn("chunk_info: Описание списка", formatted)
+        self.assertEqual(formatted.count("chunk_info: Описание списка"), 1)
+        self.assertIn("Первый пункт", formatted)
+        self.assertIn("Второй пункт", formatted)
 
     def test_truncates_by_max_chars(self) -> None:
         chunk = ContextChunk(
