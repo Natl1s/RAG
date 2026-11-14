@@ -17,6 +17,7 @@ htmlcov/
 env-creation.py
 submission/
 local_requirements.txt
+old*
 # Временные артефакты тестовых прогонов
 .pnpm/
 .pnpm-cache/

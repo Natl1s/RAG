@@ -749,7 +749,6 @@ def format_grouped_context(
         selected = [
             chunk for chunk in chunks if subquery.id in chunk.subquery_ids
         ]
-        selected = sorted(selected, key=lambda chunk: chunk.score, reverse=True)
         assigned.update(id(chunk) for chunk in selected)
         body = format_context(selected) or "Фрагменты не найдены."
         block = f"### Подзапрос {subquery.id}: {subquery.text}\n{body}"
@@ -766,7 +765,6 @@ def format_grouped_context(
 
     extra = [chunk for chunk in chunks if id(chunk) not in assigned]
     if extra:
-        extra = sorted(extra, key=lambda chunk: chunk.score, reverse=True)
         block = "### Прочие фрагменты\n" + format_context(extra)
         separator = 2 if blocks else 0
         if max_chars <= 0 or current_length + separator + len(block) <= max_chars:

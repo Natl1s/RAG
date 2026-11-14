@@ -4,6 +4,8 @@ import threading
 
 import httpx
 import numpy as np
+import pandas as pd
+from pathlib import Path
 from rag.retrieve import build_retrievers
 from script.embeddings import embeddings
 from rag.config import RAGConfig
@@ -22,8 +24,24 @@ class RAG:
 
     def build(self, documents):
         ''' из прочитанных документов строим индексы для поиска '''
-        documents = self.chunker.read_docs(documents)
-        chunks = self.chunker.chunk(documents)
+
+
+        if isinstance(documents, pd.DataFrame):
+            chunks = self.chunker.read_csv(documents)
+        elif (
+            isinstance(documents, list)
+            and all(
+                isinstance(doc, (list, tuple))
+                and len(doc) == 3
+                and all(isinstance(item, str) for item in doc)
+                for doc in documents
+            )
+        ):
+            docs = self.chunker.read_docs(documents)
+            chunks = self.chunker.chunk(docs)
+        else:
+            raise TypeError(f"Неподдерживаемый тип данных: {type(documents)}. Допустимо либо pd.DataFrame, либо list([str, str, str])")
+
         print(f"Чанков: {len(chunks)}")
         print("Эмбеддер инициализирован:", self.embedder)
         self.retrievers = build_retrievers(
@@ -38,42 +56,176 @@ class RAG:
             results = self.retrievers[
                 self.config.retrieval_type
             ].retrieve(query, k=self.config.top_k)
-            if self.config.use_reranker:
+            if self.config.use_reranker==True:
                 results = self.do_rerank(query, results)
             # print(results[0])
             return results
 
+    def format_chunk(self, chunk: RetrievedChunk) -> str:
+        return (
+            f"Шапка документа:\n{chunk.metadata.get('head_doc', '')}\n\n"
+            f"Метаданные:\n{chunk.metadata.get('info', '')}\n\n"
+            f"Текст:\n{chunk.text}"
+        )
+
     def do_rerank(
         self, query: str, top_result: list[RetrievedChunk]
     ) -> list[RetrievedChunk]:
-        return self.reranker.rerank(query, top_result)
+        print(top_result[0])
+        texts = [self.format_chunk(chunk) for chunk in top_result]
+
+        # Реранкер возвращает (индекс, score)
+        rankings = self.reranker.rerank(query, texts)
+
+        # Возвращаем исходные RetrievedChunk в новом порядке
+        return [top_result[index] for index in rankings]
+
+
+
+# def merge_chunk_csvs(
+#     chunks_dir: str | Path,
+#     headers_csv: str | Path,
+#     output_csv: str | Path,
+#     *,
+#     document_suffix: str = ".txt",
+#     sep: str = ",",
+# ) -> pd.DataFrame:
+#     """
+#     Объединить CSV с чанками и добавить шапки документов.
+
+#     Каждый CSV в chunks_dir содержит чанки одного документа.
+#     Название документа формируется из имени CSV + document_suffix.
+
+#     CSV с шапками должен содержать колонки title и head.
+
+#     Если хотя бы для одного документа отсутствует head,
+#     функция выбрасывает ValueError и не сохраняет результат.
+#     """
+#     headers_path = Path(headers_csv).resolve()
+#     output_path = Path(output_csv).resolve()
+
+#     chunk_paths = sorted(
+#         path for path in Path(chunks_dir).glob("*.csv")
+#         if path.is_file()
+#         and path.resolve() not in {headers_path, output_path}
+#     )
+
+#     if not chunk_paths:
+#         raise ValueError(f"В папке {chunks_dir} не найдены CSV с чанками")
+
+#     # Чтение шапок
+#     headers = pd.read_csv(
+#         headers_path,
+#         sep=sep,
+#         dtype=str,
+#         keep_default_na=False,
+#     )
+
+#     if not {"title", "head"}.issubset(headers.columns):
+#         raise ValueError(
+#             "CSV с шапками должен содержать колонки title и head"
+#         )
+
+#     # Нормализация названий
+#     headers["title"] = headers["title"].str.strip()
+#     headers["head"] = headers["head"].str.strip()
+
+#     if headers["title"].eq("").any():
+#         raise ValueError("В CSV с шапками есть пустые title")
+
+#     if headers["title"].duplicated().any():
+#         duplicates = headers.loc[
+#             headers["title"].duplicated(keep=False), "title"
+#         ].unique()
+
+#         raise ValueError(
+#             "В CSV с шапками есть дублирующиеся title:\n"
+#             + "\n".join(duplicates)
+#         )
+
+#     # Чтение чанков
+#     tables = []
+
+#     for path in chunk_paths:
+#         try:
+#             table = pd.read_csv(
+#                 path,
+#                 sep=sep,
+#                 dtype=str,
+#                 keep_default_na=False,
+#             )
+#         except pd.errors.ParserError as e:
+#             raise ValueError(
+#                 f"Ошибка чтения CSV: {path}\n{e}"
+#             ) from e
+
+#         if "head" in table.columns:
+#             raise ValueError(
+#                 f"{path}: колонка head уже существует в CSV с чанками"
+#             )
+
+#         table["title"] = (path.stem + document_suffix).strip()
+
+#         tables.append(table)
+
+#     # Объединение
+#     result = pd.concat(tables, ignore_index=True).merge(
+#         headers[["title", "head"]],
+#         on="title",
+#         how="left",
+#         validate="many_to_one",
+#         sort=False,
+#     )
+
+#     # Проверка отсутствующих шапок
+#     missing = (
+#         result["head"].isna()
+#         | result["head"].str.strip().eq("")
+#     )
+
+#     if missing.any():
+#         missing_titles = result.loc[
+#             missing, "title"
+#         ].unique()
+
+#         raise ValueError(
+#             f"Не найдены шапки для {len(missing_titles)} документов:\n"
+#             + "\n".join(missing_titles)
+#         )
+
+#     # Сохранение
+#     output_path.parent.mkdir(
+#         parents=True,
+#         exist_ok=True,
+#     )
+
+#     result.to_csv(
+#         output_path,
+#         sep=sep,
+#         index=False,
+#     )
+
+#     return result
 
 
 def main():
-    from rag.ingest.schema import Document, Chunk
-    config = RAGConfig(n_reranks=2)
-    rag = RAG(config)
+    # merge_chunk_csvs("/home/bibeda/psb-rag/llm_index", "/home/bibeda/psb-rag/index.csv", "/home/bibeda/psb-rag/result_chunks.csv")
+    rag = RAG(RAGConfig())
+    docs = "./dataset/result_chunks.csv"
+    docs = pd.read_csv(docs)
+    rag.build(docs)
 
-    # Пример документов
-    documents = [
-        ("name", "Положения статьи 152 (в редакции Федерального закона от 22 апреля 2024 г. № 91-ФЗ) не являются основанием для пересмотра работодателем условий, установленных коллективным договором, соглашением, локальным нормативным актом или трудовым договором до 1 сентября 2024 г. и предусматривающих оплату сверхурочной работы в более высоком размере, чем размер оплаты сверхурочной работы, определенный в соответствии с частью первой статьи 152 (в редакции Федерального закона от 22 апреля 2024 г. № 91-ФЗ) Сверхурочная работа оплачивается исходя из размера заработной платы, установленного в соответствии с действующими у данного работодателя системами оплаты труда в период выполнения "
-        , "head1"),
-        (   "name_2", "сверхурочной работы, включая компенсационные и стимулирующие выплаты, в пределах 120 часов в год за первые два часа работы не менее чем в полуторном размере, за последующие часы - не менее чем в двойном размере, начиная со 121-го часа - не менее чем в двойном размере за каждый час. При суммированном учете рабочего времени сверхурочная работа оплачивается исходя из величины сверхурочного времени, приходящегося на день (смену), в который (которую) осуществляется сверхурочная работа: за первые два часа работы - не менее чем в полуторном размере, за последующие часы - не менее чем в двойном размере, начиная со 121-го часа - не менее чем в двойном размере за каждый час, если иное не предусмотрено настоящим Кодексом. Конкретные размеры оплаты сверхурочной работы могут определяться коллективным договором и (или) отраслевым соглашением, локальным нормативным актом или трудовым договором. По желанию "       , "head2" ),
-        ("name_3", " № 91-ФЗ) не являются основанием для пересмотра работодателем условий, установленных коллективным договором, соглашением, локальным нормативным актом или трудовым договором до 1 сентября 2024 г. и предусматривающих оплату сверхурочной работы в более высоком размере, чем размер оплаты сверхурочной работы, определенный в соответствии с частью первой статьи 152 (в редакции Федерального закона от 22 апреля 2024 г. № 91-ФЗ) Сверхурочная работа оплачивается исходя из размера заработной платы, установленного в соответствии с действующими у данного работодателя системами оплаты труда в период выполнения ", "head3"
-                ),
-                (   "name_4", "сверхурочной работы, включая компенсационные и стимулирующие выплаты, в пределах 120 часов в год за первые два часа работы не менее чем в полуторном размере, за последующие часы - не менее чем в двойном размере, начиная со 121-го часа - не менее чем в двойном размере за каждый час. При суммированном учете рабочего времени сверхурочная работа оплачивается исходя из величины сверхурочного времени, приходящегося на день (смену), в который (которую) осуществляется сверхурочная работа: за первые два часа работы - не менее чем в полуторном размере, за последующие часы - не менее чем в двойном размере, начиная со 121-го часа - не менее чем в двойном размере за каждый час, если иное не предусмотрено настоящим Кодексом. Конкретные размеры оплаты сверхурочной работы могут определяться коллективным договором и (или) отраслевым соглашением, локальным нормативным актом или трудовым договором. По желанию "       , "head6")
-    ]
+    QUERY = "Какая арендная плата по договору с ООО «Северный Склад» и до какого числа её нужно вносить?"
+    result = rag.search_chunks(QUERY)
+    # result = rag.do_rerank(QUERY, result)
 
-    rag.build(documents)
+    print(result[0])
+    # docks = "/home/bibeda/psb-rag/result_chunks.csv"
+    # docs = pd.read_csv(docks)
 
-    query = "текст документа"
-    results = rag.search_chunks(query)
-    print(len(results))
-    results = rag.do_rerank(query, top_result=results)
-    print(results)
-    # print("Результаты поиска:")
-    # for doc_id, text in results:
-    #     print(f"Doc ID: {doc_id}, Text: {text}")
+    # print(docs[docs["chunk"].str.len() <= 50])
+    # print(docs.shape)
 
 if __name__ == "__main__":
     main()
+

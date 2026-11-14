@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from rag.embeddings.embedders import SentenceTransformerEmbeddings, ExternalEmbeddings
-from rag.rerankers.reranker import Reranker, ExternalReranker
+from rag.rerankers.reranker import Reranker, ExternalReranker, QwenReranker
 @dataclass
 class RAGConfig:
     # Чанкер
@@ -15,21 +15,26 @@ class RAGConfig:
 
     # Поиск RAG: способ поиска, количество результатов и переранжирование.
     retrieval_type: str = "hybrid" # "bm25", "dense", or "hybrid"
-    top_k: int = 5
-    use_reranker: bool = False
+    top_k: int = 10
+    use_reranker: bool = True
 
     # Индексация RAG: используемые индексы и режимы поиска.
     use_faiss: bool = True
     use_dense: bool = True
     use_hybrid: bool = True
+    hybrid_score_mode: str = "score"  # "rank" restores legacy fusion
+    hybrid_bm25_scale: float = 8.0  # heuristic: BM25 score mapped to 0.5
+    hybrid_w_bm25: float = 0.5
+    hybrid_w_dense: float = 0.5
 
     # Фильтрация чанков при дальнейшей обработке RAG: допустимая длина текста.
-    min_chunk_chars: int = 50
+    min_chunk_chars: int = 0
     max_chunk_chars: int = 10000
 
     # Reranker parametr
     reranker: object = None
-    n_reranks: int = 3
+    reranker_model: str = None #"models/Qwen3-Reranker-0.6B"
+    n_reranks: int = 4
 
     # Инициализация эмбеддера по выбранному способу вычисления.
     def __post_init__(self):
@@ -39,13 +44,21 @@ class RAGConfig:
                 batch_size=self.batch_size,
             )
 
-            self.reranker = Reranker(self)
+            if self.reranker_model != None:
+                self.reranker = QwenReranker(
+                    model_name=self.reranker_model,
+                )
+            else:
+                self.reranker = Reranker(self)
 
         elif self.embedding_type == "remote":
             if self.client is None:
                 raise ValueError("Client must be provided")
 
             self.embedder = ExternalEmbeddings(self.client)
-            self.reranker = ExternalReranker(self)
+            if self.use_reranker:
+                self.reranker = ExternalReranker(self)
+            else:
+                self.reranker = Reranker(self)
         else:
             raise ValueError(f"Unknown embedding type: {self.embedding_type}")

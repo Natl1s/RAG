@@ -54,6 +54,10 @@ def build_retrievers(
         retrievers["hybrid"] = HybridRetriever(
             bm25_retriever=bm25,
             dense_retriever=retrievers["dense"],
+            score_mode=config.hybrid_score_mode,
+            bm25_scale=config.hybrid_bm25_scale,
+            w_bm25=config.hybrid_w_bm25,
+            w_dense=config.hybrid_w_dense,
         )
 
     return retrievers

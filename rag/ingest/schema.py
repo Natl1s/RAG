@@ -51,6 +51,14 @@ class Chunk:
     chunk_id: str
     text: str
     metadata: dict[str, Any]
-    score: float
+    score: float = 0.0
     char_start: int = 0
     char_end: int = 0
+
+    def search_text(self) -> str:
+        """Текст для индексов: содержание и контекст конкретного фрагмента."""
+        parts = [self.text, self.doc_id.replace("_", " ")]
+        info = self.metadata.get("info")
+        if isinstance(info, str) and info.strip():
+            parts.append(info)
+        return "\n\n".join(parts)
