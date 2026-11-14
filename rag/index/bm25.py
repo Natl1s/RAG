@@ -58,7 +58,7 @@ class BM25Retriever(Retriever):
         chunk_list = list(chunks)
         if not chunk_list:
             raise ValueError("Нельзя строить BM25 индекс по пустому корпусу чанков")
-        tokenized_corpus = [tokenize(c.text) for c in chunk_list]
+        tokenized_corpus = [tokenize(c.search_text()) for c in chunk_list]
         logger.info("Строим BM25 индекс по %s чанкам", len(chunk_list))
         index = BM25Okapi(tokenized_corpus)
         return cls(index=index, chunks=chunk_list)

@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from rag.ingest.chunking import chunk_documents
-from rag.ingest.load_dataset import read_docs
+from rag.ingest.load_dataset import read_docs, read_csv
 from rag.ingest.preprocess import clean_text
 from rag.ingest.schema import Chunk, Document
 
@@ -23,6 +23,9 @@ class Chunker:
         """Прочитать пары (название, текст) и очистить тексты документов."""
         return self.clean_docs(read_docs(documents))
 
+    def read_csv(self, documents: pd.DataFrame) -> list[Chunk]:
+        return read_csv(documents)
+    
     def clean_docs(self, documents: Iterable[Document]) -> list[Document]:
         """Очистить тексты, сохранив исходные документы и их метаданные."""
         return [replace(doc, text=clean_text(doc.text)) for doc in documents]

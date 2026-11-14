@@ -54,7 +54,7 @@ def build_faiss_index(
         )
     logger.info("Строим FAISS индекс по %s чанкам (min_len=%s)", len(chunk_list), min_chunk_chars)
 
-    texts = [c.text for c in chunk_list]
+    texts = [c.search_text() for c in chunk_list]
     embeddings = embed_func(texts).astype(np.float32)
     embeddings = _l2_normalize(embeddings)
     dim = embeddings.shape[1]
