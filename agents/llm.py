@@ -23,7 +23,7 @@ from langchain_openai import ChatOpenAI
 
 from agents.config import Settings
 from agents.context import format_context, format_grouped_context
-from agents.dialog import format_history, queries_similar
+from agents.dialog import history_records, queries_similar
 from agents.prompts import (
     GENERATE_SYSTEM_PROMPT,
     GRADE_SYSTEM_PROMPT,
@@ -491,7 +491,7 @@ def understand_query(
     budget_remaining: int | None = None,
 ) -> UnderstandResult:
     """Проанализировать вопрос, историю, тематику и декомпозицию."""
-    history_text = format_history(history, settings.history_limit)
+    history_data = history_records(history, settings.history_limit)
     messages = [
         SystemMessage(
             content=UNDERSTAND_SYSTEM_PROMPT.format(
@@ -500,7 +500,7 @@ def understand_query(
         ),
         HumanMessage(
             content=understand_user_prompt(
-                history_text,
+                history_data,
                 last_user_question,
                 settings.max_subqueries,
             )
@@ -651,17 +651,13 @@ def grade_retrieval(
         contexts,
         settings.max_grade_context_chars,
     )
-    subqueries_text = json.dumps(
-        [
-            {"id": subquery.id, "text": subquery.text, "kind": subquery.kind}
-            for subquery in subqueries
-        ],
-        ensure_ascii=False,
-        indent=2,
-    )
+    subqueries_data = [
+        {"id": subquery.id, "text": subquery.text, "kind": subquery.kind}
+        for subquery in subqueries
+    ]
     messages = [
         SystemMessage(content=GRADE_SYSTEM_PROMPT),
-        HumanMessage(content=grade_user_prompt(question, subqueries_text, context_text)),
+        HumanMessage(content=grade_user_prompt(question, subqueries_data, context_text)),
     ]
     raw = _chat_completion(
         settings=settings,
@@ -728,11 +724,15 @@ def rewrite_subquery(
     if not base:
         return ""
 
-    tried_text = "\n".join(f"- {query}" for query in tried_queries[-8:]) or "Нет."
     messages = [
         SystemMessage(content=REWRITE_SYSTEM_PROMPT),
         HumanMessage(
-            content=rewrite_user_prompt(question, base, reason, tried_text)
+            content=rewrite_user_prompt(
+                question,
+                base,
+                reason,
+                tried_queries[-8:],
+            )
         ),
     ]
     raw = _chat_completion(
@@ -771,14 +771,14 @@ def generate_answer(
     if not context_text:
         return no_data_answer(question)
 
-    history_text = format_history(history, settings.history_limit)
+    history_data = history_records(history, settings.history_limit)
     premise = _premise_text(premise_check)
     messages = [
         SystemMessage(content=GENERATE_SYSTEM_PROMPT),
         HumanMessage(
             content=generate_user_prompt(
                 question,
-                history_text,
+                history_data,
                 premise,
                 coverage,
                 missing_aspects,
@@ -987,10 +987,8 @@ def revise_answer(
     if not context_text:
         return no_data_answer(question)
 
-    verification_text = (
-        json.dumps(verification.model_dump(), ensure_ascii=False, indent=2)
-        if verification is not None
-        else "Замечания отсутствуют."
+    verification_data = (
+        verification.model_dump() if verification is not None else None
     )
     messages = [
         SystemMessage(content=REVISE_SYSTEM_PROMPT),
@@ -999,7 +997,7 @@ def revise_answer(
                 question,
                 answer,
                 context_text,
-                verification_text,
+                verification_data,
             )
         ),
     ]

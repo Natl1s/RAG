@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from agents.config import Settings
-from agents.nodes import route_after_grade, route_after_verify
+from agents.nodes import route_after_grade
 from agents.service import AgentService
 from agents.state import (
     ClarificationRequest,
@@ -216,32 +216,14 @@ class GraphFlowTest(unittest.TestCase):
         answer = asyncio.run(service.aanswer("u-1", "налоги"))
 
         self.assertIn("Ответ", answer.answer)
-        self.assertEqual(self.rag.calls, ["налоги", "налоги и сборы"])
-
-    def test_answer_revision_cycle(self) -> None:
-        self._patch("understand_query", Mock(return_value=make_understand()))
-        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
-        self._patch(
-            "generate_answer",
-            Mock(return_value="Черновик [doc_id: doc-1]"),
+        self.assertEqual(
+            self.rag.calls,
+            [
+                "налоги",
+                "налоги и сборы",
+                "Документ права и обязанности сторон нет данных",
+            ],
         )
-        self._patch(
-            "verify_answer",
-            Mock(
-                side_effect=[
-                    make_verify("revise_answer"),
-                    make_verify("pass"),
-                ]
-            ),
-        )
-        revise = Mock(return_value="Исправленный ответ [doc_id: doc-1]")
-        self._patch("revise_answer", revise)
-        service = AgentService(self.rag, settings=self.settings)
-
-        answer = asyncio.run(service.aanswer("u-1", "налоги"))
-
-        self.assertIn("Исправленный ответ", answer.answer)
-        revise.assert_called_once()
 
     def test_finalize_humanizes_sources(self) -> None:
         self._patch("understand_query", Mock(return_value=make_understand()))
@@ -314,17 +296,6 @@ class GraphFlowTest(unittest.TestCase):
         state["coverage"] = "none"
         self.assertEqual(route_after_grade(state, self.settings), "finalize")
 
-    def test_soft_budget_skips_revision(self) -> None:
-        state = {
-            "verification": make_verify("revise_answer"),
-            "total_steps": 5,
-            "answer_attempts": 1,
-            "retrieval_attempts": 1,
-            "used_tokens": self.settings.max_total_tokens_soft,
-        }
-
-        self.assertEqual(route_after_verify(state, self.settings), "finalize")
-
     def test_hard_budget_prevents_llm_calls(self) -> None:
         builder = patch(
             "agents.llm._build_llm",
@@ -357,7 +328,7 @@ class GraphFlowTest(unittest.TestCase):
         answer = asyncio.run(service.aanswer("u-1", "неизвестный вопрос"))
 
         self.assertIn("нет документов", answer.answer)
-        self.assertEqual(len(self.rag.calls), 2)
+        self.assertEqual(len(self.rag.calls), 3)
 
 
 if __name__ == "__main__":

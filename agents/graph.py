@@ -1,4 +1,4 @@
-"""Сборка агентского графа LangGraph."""
+"""Сборка production-графа агентского сервиса."""
 
 from __future__ import annotations
 
@@ -9,19 +9,18 @@ from langgraph.graph.state import CompiledStateGraph
 from agents.config import Settings
 from agents.nodes import (
     make_clarify_node,
+    make_expand_query_node,
     make_finalize_node,
     make_generate_node,
     make_grade_node,
     make_parse_dialog_node,
     make_refuse_node,
     make_retrieve_node,
-    make_revise_node,
     make_rewrite_node,
     make_understand_node,
     make_verify_node,
     route_after_grade,
     route_after_understand,
-    route_after_verify,
 )
 from agents.state import AgentState
 from rag.rag_pipeline import RAG
@@ -34,32 +33,16 @@ def build_graph(
     settings: Settings,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
-    """Собрать и скомпилировать граф.
-
-    Схема::
-
-        START -> parse_dialog -> understand
-            -> refuse -> END
-            -> clarify -> END
-            -> retrieve -> grade
-                -> clarify -> END
-                -> generate -> verify -> finalize -> END
-                -> rewrite -> retrieve
-                -> finalize
-
-    Циклы ограничены настройками ``max_retrieval_attempts``,
-    ``max_answer_attempts`` и ``max_total_llm_calls``.
-    """
+    """Собрать production-граф с retrieval expansion и controlled finalize."""
     graph = StateGraph(AgentState)
-
     graph.add_node("parse_dialog", make_parse_dialog_node())
     graph.add_node("understand", make_understand_node(settings))
     graph.add_node("retrieve", make_retrieve_node(rag_client, settings))
     graph.add_node("grade", make_grade_node(settings))
+    graph.add_node("expand", make_expand_query_node())
     graph.add_node("rewrite", make_rewrite_node(settings))
     graph.add_node("generate", make_generate_node(settings))
     graph.add_node("verify", make_verify_node(settings))
-    graph.add_node("revise", make_revise_node(settings))
     graph.add_node("clarify", make_clarify_node())
     graph.add_node("finalize", make_finalize_node())
     graph.add_node("refuse", make_refuse_node())
@@ -81,23 +64,15 @@ def build_graph(
         lambda state: route_after_grade(state, settings),
         {
             "generate": "generate",
-            "rewrite": "rewrite",
+            "rewrite": "expand",
             "finalize": "finalize",
             "clarify": "clarify",
         },
     )
+    graph.add_edge("expand", "rewrite")
     graph.add_edge("rewrite", "retrieve")
     graph.add_edge("generate", "verify")
-    graph.add_conditional_edges(
-        "verify",
-        lambda state: route_after_verify(state, settings),
-        {
-            "revise": "revise",
-            "rewrite": "rewrite",
-            "finalize": "finalize",
-        },
-    )
-    graph.add_edge("revise", "verify")
+    graph.add_edge("verify", "finalize")
     graph.add_edge("clarify", END)
     graph.add_edge("finalize", END)
     graph.add_edge("refuse", END)

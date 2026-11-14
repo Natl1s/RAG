@@ -5,7 +5,7 @@ from rag.rerankers.reranker import Reranker, ExternalReranker, QwenReranker
 class RAGConfig:
     # Чанкер
     chunk_size: int = 600
-    chunk_overlap: int = 50
+    chunk_overlap: int = 20
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
     embedding_model: str = "models/multilingual-e5-small"
