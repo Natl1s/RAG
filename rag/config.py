@@ -22,6 +22,10 @@ class RAGConfig:
     use_faiss: bool = True
     use_dense: bool = True
     use_hybrid: bool = True
+    hybrid_score_mode: str = "score"  # "rank" restores legacy fusion
+    hybrid_bm25_scale: float = 8.0  # heuristic: BM25 score mapped to 0.5
+    hybrid_w_bm25: float = 0.5
+    hybrid_w_dense: float = 0.5
 
     # Фильтрация чанков при дальнейшей обработке RAG: допустимая длина текста.
     min_chunk_chars: int = 0
