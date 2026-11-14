@@ -656,6 +656,17 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     total_steps = state.get("total_steps", 0)
     retrieval_attempts = state.get("retrieval_attempts", 0)
 
+    # При наличии контекста исправляем ложную предпосылку без нового поиска.
+    # При coverage=none генерация всё равно завершится отказом из-за отсутствия
+    # доказательств, поэтому сразу переходим к финализации.
+    premise_check = state.get("premise_check")
+    if (
+        coverage != "none"
+        and premise_check is not None
+        and premise_check.has_false_premise
+    ):
+        return "generate"
+
     clarification = state.get("clarification")
     if (
         coverage != "none"
@@ -687,5 +698,4 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     if coverage == "none":
         return "finalize"
     return "generate" if total_steps < settings.max_total_llm_calls else "finalize"
-
 
