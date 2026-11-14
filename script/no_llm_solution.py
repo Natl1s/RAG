@@ -150,7 +150,7 @@ def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     # documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
     import pandas as pd
-    docs = "/home/bibeda/psb-rag/result_chunks.csv"
+    docs = "/home/bibeda/psb-rag/dataset/result_chunks.csv"
     docs = pd.read_csv(docs)
     
     # index = load_index(Path("dataset/index.csv"))
