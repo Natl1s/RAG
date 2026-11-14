@@ -82,12 +82,12 @@ def embeddings(client: httpx.Client, texts: list[str]) -> list[list[float]]:
         raise ValueError("Получены не все embeddings")
     return vectors  # type: ignore[return-value]
 
-def rerank(client: httpx.Client, question: str, docs: list[RetrievedChunk], top_k: int) -> list[RetrievedChunk]:
+def rerank(client: httpx.Client, question: str, docs: list[str], top_k: int) -> list[int]:
     """Пример вызова RERANKER_MODEL через POST /rerank."""
     result = post(client, "/rerank", RERANK_KEY, {
         "model": RERANKER_MODEL,
         "query": question,
-        "documents": [chunk.name + "\n" + chunk.metadata["head_doc"] + "\n" + chunk.text + "\n" + chunk.metadata["info"] for chunk in docs],
+        "documents": [chunk for chunk in docs],
         "top_n": min(top_k, len(docs)),
     })
     items = result.get("results", result.get("data", []))

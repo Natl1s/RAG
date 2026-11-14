@@ -148,7 +148,7 @@ def main() -> None:
     docs = "./dataset/result_chunks.csv"
     docs = pd.read_csv(docs)
 
-    rag_client = RAG(RAGConfig())
+    rag_client = RAG(RAGConfig(use_reranker=False))
     rag_client.build(docs)
 
     def work(position: int, question: str) -> tuple[int, str]:

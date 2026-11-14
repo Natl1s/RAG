@@ -56,7 +56,7 @@ class RAG:
             results = self.retrievers[
                 self.config.retrieval_type
             ].retrieve(query, k=self.config.top_k)
-            if self.config.use_reranker:
+            if self.config.use_reranker==True:
                 results = self.do_rerank(query, results)
             # print(results[0])
             return results
@@ -78,7 +78,7 @@ class RAG:
         rankings = self.reranker.rerank(query, texts)
 
         # Возвращаем исходные RetrievedChunk в новом порядке
-        return [top_result[index] for index, score in rankings]
+        return [top_result[index] for index in rankings]
 
 
 

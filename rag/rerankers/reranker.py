@@ -16,18 +16,17 @@ class Reranker:
     def __init__(self, config: RAGConfig) -> None:
         self.config = config
 
-    def rerank(self, query: str, texts: list[str]) -> list[tuple[int, float]]:
-        n = min(self.config.n_reranks, len(texts))
-        # score = 0.0 — нет реального скоринга, но контракт соблюдён
-        return [(i, 0.0) for i in range(n)]
+    def rerank(self, query: str, texts: list[str]) -> list[int]:
+        n = len(texts)
+        return [i for i in range(n)]
 
     
 class ExternalReranker:
     def __init__(self, config):
         self.config = config 
 
-    def rerank(self, query, top_retrievals: list[RetrievalChunk]) -> list[RetrievalChunk]:
-        return rerank(self.config.client, query, top_retrievals, self.cofing.n_reranks)
+    def rerank(self, query, top_retrievals: list[str]) -> list[int]:
+        return rerank(self.config.client, query, top_retrievals, self.config.n_reranks)
 
 class QwenReranker:
     """

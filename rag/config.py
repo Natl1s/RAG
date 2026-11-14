@@ -15,8 +15,8 @@ class RAGConfig:
 
     # Поиск RAG: способ поиска, количество результатов и переранжирование.
     retrieval_type: str = "hybrid" # "bm25", "dense", or "hybrid"
-    top_k: int = 5
-    use_reranker: bool = False
+    top_k: int = 10
+    use_reranker: bool = True
 
     # Индексация RAG: используемые индексы и режимы поиска.
     use_faiss: bool = True
@@ -34,7 +34,7 @@ class RAGConfig:
     # Reranker parametr
     reranker: object = None
     reranker_model: str = None #"models/Qwen3-Reranker-0.6B"
-    n_reranks: int = 3
+    n_reranks: int = 4
 
     # Инициализация эмбеддера по выбранному способу вычисления.
     def __post_init__(self):
@@ -47,9 +47,7 @@ class RAGConfig:
             if self.reranker_model != None:
                 self.reranker = QwenReranker(
                     model_name=self.reranker_model,
-                    top_k=self.n_reranks
                 )
-
             else:
                 self.reranker = Reranker(self)
 
@@ -58,6 +56,9 @@ class RAGConfig:
                 raise ValueError("Client must be provided")
 
             self.embedder = ExternalEmbeddings(self.client)
-            self.reranker = ExternalReranker(self)
+            if self.use_reranker:
+                self.reranker = ExternalReranker(self)
+            else:
+                self.reranker = Reranker(self)
         else:
             raise ValueError(f"Unknown embedding type: {self.embedding_type}")
