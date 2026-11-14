@@ -49,7 +49,7 @@ def env_float(name: str, default: float) -> float:
         return default
 
 # Настройки приходят с платформы. В ZIP НЕ НУЖНО класть секреты и .env.
-DATA_DIR = Path(env("DATA_DIR", "data"))
+DATA_DIR = Path(env("DATA_DIR", "dataset"))
 MAX_WORKERS = env_int("MAX_WORKERS", 2, 1, 8)
 
 # SNIPPET_CHARS = 1200
@@ -130,11 +130,11 @@ def join(a: list[tuple[str, str]],
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
-    index = load_index(Path("./index.csv"))
-    documents = join(documents, index)
-    # questions = questions[:2]
+    import pandas as pd
+    docs = "./dataset/result_chunks.csv"
+    docs = pd.read_csv(docs)
     rag_client = RAG(RAGConfig())
-    rag_client.build(documents)
+    rag_client.build(docs)
     service = build_local_service(rag_client)
 
     def work(position: int, question: str) -> tuple[int, str]:

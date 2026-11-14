@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from agents.config import Settings
 from agents.nodes import route_after_grade, route_after_verify
@@ -114,7 +114,7 @@ class GraphFlowTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_out_of_scope_does_not_retrieve(self) -> None:
-        self._patch("understand_query", AsyncMock(return_value=make_understand(False)))
+        self._patch("understand_query", Mock(return_value=make_understand(False)))
         service = AgentService(self.rag, settings=self.settings)
 
         answer = asyncio.run(service.aanswer("u-1", "кто выиграет чемпионат?"))
@@ -129,7 +129,7 @@ class GraphFlowTest(unittest.TestCase):
             question="Уточните, пожалуйста, номер договора.",
             missing_slots=["номер договора"],
         )
-        self._patch("understand_query", AsyncMock(return_value=understand))
+        self._patch("understand_query", Mock(return_value=understand))
         service = AgentService(self.rag, settings=self.settings)
 
         result = asyncio.run(
@@ -150,13 +150,13 @@ class GraphFlowTest(unittest.TestCase):
             needed=True,
             question="Уточните, пожалуйста, номер договора.",
         )
-        self._patch("understand_query", AsyncMock(return_value=understand))
-        self._patch("grade_retrieval", AsyncMock(return_value=make_grade("full")))
+        self._patch("understand_query", Mock(return_value=understand))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
         self._patch(
             "generate_answer",
-            AsyncMock(return_value="Ответ [doc_id: doc-1]"),
+            Mock(return_value="Ответ [doc_id: doc-1]"),
         )
-        self._patch("verify_answer", AsyncMock(return_value=make_verify("pass")))
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
         service = AgentService(self.rag, settings=self.settings)
 
         result = asyncio.run(
@@ -183,9 +183,9 @@ class GraphFlowTest(unittest.TestCase):
                 kind="fact",
             )
         ]
-        generate = AsyncMock(return_value="Не должно вызываться.")
-        self._patch("understand_query", AsyncMock(return_value=understand))
-        self._patch("grade_retrieval", AsyncMock(return_value=make_grade("full")))
+        generate = Mock(return_value="Не должно вызываться.")
+        self._patch("understand_query", Mock(return_value=understand))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
         self._patch("generate_answer", generate)
         service = AgentService(rag, settings=self.settings)
 
@@ -197,20 +197,20 @@ class GraphFlowTest(unittest.TestCase):
         self.assertIn("Альфа-Трейд", result.answer)
         self.assertIn("Альфа-Трейдинг", result.answer)
         self.assertEqual(rag.calls, ["Подскажите гарантию по договору с «Альфой»."])
-        generate.assert_not_awaited()
+        generate.assert_not_called()
 
     def test_retrieval_rewrite_cycle(self) -> None:
-        self._patch("understand_query", AsyncMock(return_value=make_understand()))
+        self._patch("understand_query", Mock(return_value=make_understand()))
         self._patch(
             "grade_retrieval",
-            AsyncMock(side_effect=[make_grade("none"), make_grade("full")]),
+            Mock(side_effect=[make_grade("none"), make_grade("full")]),
         )
-        self._patch("rewrite_subquery", AsyncMock(return_value="налоги и сборы"))
+        self._patch("rewrite_subquery", Mock(return_value="налоги и сборы"))
         self._patch(
             "generate_answer",
-            AsyncMock(return_value="Ответ [doc_id: doc-1]"),
+            Mock(return_value="Ответ [doc_id: doc-1]"),
         )
-        self._patch("verify_answer", AsyncMock(return_value=make_verify("pass")))
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
         service = AgentService(self.rag, settings=self.settings)
 
         answer = asyncio.run(service.aanswer("u-1", "налоги"))
@@ -219,29 +219,45 @@ class GraphFlowTest(unittest.TestCase):
         self.assertEqual(self.rag.calls, ["налоги", "налоги и сборы"])
 
     def test_answer_revision_cycle(self) -> None:
-        self._patch("understand_query", AsyncMock(return_value=make_understand()))
-        self._patch("grade_retrieval", AsyncMock(return_value=make_grade("full")))
+        self._patch("understand_query", Mock(return_value=make_understand()))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
         self._patch(
             "generate_answer",
-            AsyncMock(return_value="Черновик [doc_id: doc-1]"),
+            Mock(return_value="Черновик [doc_id: doc-1]"),
         )
         self._patch(
             "verify_answer",
-            AsyncMock(
+            Mock(
                 side_effect=[
                     make_verify("revise_answer"),
                     make_verify("pass"),
                 ]
             ),
         )
-        revise = AsyncMock(return_value="Исправленный ответ [doc_id: doc-1]")
+        revise = Mock(return_value="Исправленный ответ [doc_id: doc-1]")
         self._patch("revise_answer", revise)
         service = AgentService(self.rag, settings=self.settings)
 
         answer = asyncio.run(service.aanswer("u-1", "налоги"))
 
         self.assertIn("Исправленный ответ", answer.answer)
-        revise.assert_awaited_once()
+        revise.assert_called_once()
+
+    def test_finalize_humanizes_sources(self) -> None:
+        self._patch("understand_query", Mock(return_value=make_understand()))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
+        self._patch(
+            "generate_answer",
+            Mock(return_value="Ответ [doc_id: doc-1]"),
+        )
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
+        service = AgentService(self.rag, settings=self.settings)
+
+        answer = asyncio.run(service.aanswer("u-1", "налоги"))
+
+        self.assertIn("[Документ]", answer.answer)
+        self.assertNotIn("doc_id", answer.answer)
+        self.assertIn("Источники:", answer.answer)
 
     def test_rewrite_is_limited_per_round(self) -> None:
         subqueries = [
@@ -261,18 +277,18 @@ class GraphFlowTest(unittest.TestCase):
             premise_check=PremiseCheck(),
             subqueries=subqueries,
         )
-        self._patch("understand_query", AsyncMock(return_value=understand))
+        self._patch("understand_query", Mock(return_value=understand))
         self._patch(
             "grade_retrieval",
-            AsyncMock(side_effect=[make_grade("none"), make_grade("full")]),
+            Mock(side_effect=[make_grade("none"), make_grade("full")]),
         )
-        rewrite = AsyncMock(return_value="новый запрос")
+        rewrite = Mock(return_value="новый запрос")
         self._patch("rewrite_subquery", rewrite)
         self._patch(
             "generate_answer",
-            AsyncMock(return_value="Ответ [doc_id: doc-1]"),
+            Mock(return_value="Ответ [doc_id: doc-1]"),
         )
-        self._patch("verify_answer", AsyncMock(return_value=make_verify("pass")))
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
         settings = Settings(
             llm_base_url="http://llm.local/v1",
             llm_api_key="test-key",
@@ -283,7 +299,7 @@ class GraphFlowTest(unittest.TestCase):
 
         asyncio.run(service.aanswer("u-1", "сложный вопрос"))
 
-        self.assertEqual(rewrite.await_count, 2)
+        self.assertEqual(rewrite.call_count, 2)
 
     def test_soft_budget_skips_optional_rewrite(self) -> None:
         state = {
@@ -330,12 +346,12 @@ class GraphFlowTest(unittest.TestCase):
         self.assertIn("нет документов", answer.answer)
 
     def test_no_data_refuses_after_retrieval_limit(self) -> None:
-        self._patch("understand_query", AsyncMock(return_value=make_understand()))
+        self._patch("understand_query", Mock(return_value=make_understand()))
         self._patch(
             "grade_retrieval",
-            AsyncMock(side_effect=[make_grade("none"), make_grade("none")]),
+            Mock(side_effect=[make_grade("none"), make_grade("none")]),
         )
-        self._patch("rewrite_subquery", AsyncMock(return_value="другой запрос"))
+        self._patch("rewrite_subquery", Mock(return_value="другой запрос"))
         service = AgentService(self.rag, settings=self.settings)
 
         answer = asyncio.run(service.aanswer("u-1", "неизвестный вопрос"))
