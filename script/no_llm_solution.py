@@ -141,20 +141,12 @@ def generate(docs: list[RetrievedChunk]) -> str:
         for rank, chunk in enumerate(docs, start=1)
     )
 
-def join(a: list[tuple[str, str]],
-         b: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
-    b_map = dict(b)                      # если в b нет дублей по ключу
-    return [(k, v, b_map[k]) for k, v in a if k in b_map]
-
 def main() -> None:
     questions = load_questions(find_file("questions.csv"))
     # documents = load_documents(find_file("kb.zip", "knowledge-base.zip", "knowledge_base.zip"))
     import pandas as pd
-    docs = "/home/bibeda/psb-rag/result_chunks.csv"
+    docs = "./dataset/result_chunks.csv"
     docs = pd.read_csv(docs)
-    
-    # index = load_index(Path("dataset/index.csv"))
-    # documents = join(documents, index)
 
     rag_client = RAG(RAGConfig())
     rag_client.build(docs)
