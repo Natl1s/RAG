@@ -26,6 +26,10 @@ uvicorn main:app --reload --port 8000
 (путь задан в `main.py`). Нужен только `.env` в корне репозитория с
 `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` — это чат-модель.
 
+Если каталога `models/multilingual-e5-small` нет, бэкенд берёт копию из
+`/opt/models/multilingual-e5-small`, которая скачивается при сборке образа
+(см. раздел «Docker»).
+
 Документация — http://127.0.0.1:8000/docs.
 
 ## API
@@ -98,8 +102,12 @@ docker compose up --build
 
 - зависимости ставятся при сборке образа;
 - корпус `dataset/result_chunks.csv` копируется в образ;
-- модель эмбеддингов монтируется из `./models` в `/app/models` (в образ не
-  копируется);
+- при сборке в образ скачивается модель `intfloat/multilingual-e5-small`
+  (`/opt/models`), поэтому `docker compose up --build` работает и на чистом
+  клоне без `./models`; лишние веса (`pytorch_model.bin`, `onnx`, `openvino`)
+  не тянутся;
+- если `./models` заполнен, Compose монтирует его в `/app/models`, и `main.py`
+  предпочитает монтированную копию запасной из образа;
 - фронтенд собирается там же и проксирует `/api` на бэкенд;
 - значения `LLM_*` Compose берёт из `.env` рядом с `docker-compose.yml`.
 

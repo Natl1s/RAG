@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -240,3 +241,42 @@ def test_reload_cancels_pending_deletion(client: TestClient) -> None:
 
     assert client.get("/api/conversations/tab-aaaa-1111?ts=2000000000001").status_code == 200
     assert main._HISTORY["tab-aaaa-1111"].closing_at is None
+
+
+def _make_model_dir(path: Path) -> Path:
+    path.mkdir()
+    (path / "config.json").write_text("{}", encoding="utf-8")
+    return path
+
+
+def test_model_path_prefers_mounted_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mounted = _make_model_dir(tmp_path / "mounted")
+    baked = _make_model_dir(tmp_path / "baked")
+    monkeypatch.setattr(main, "MODEL_PATH", mounted)
+    monkeypatch.setattr(main, "BAKED_MODEL_PATH", baked)
+
+    assert main._resolve_model_path() == mounted
+
+
+def test_model_path_falls_back_to_baked_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mounted = tmp_path / "mounted"  # пустой ./models на чистом клоне
+    baked = _make_model_dir(tmp_path / "baked")
+    monkeypatch.setattr(main, "MODEL_PATH", mounted)
+    monkeypatch.setattr(main, "BAKED_MODEL_PATH", baked)
+
+    assert main._resolve_model_path() == baked
+
+
+def test_model_path_returns_expected_path_when_both_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mounted = tmp_path / "mounted"
+    baked = tmp_path / "baked"
+    monkeypatch.setattr(main, "MODEL_PATH", mounted)
+    monkeypatch.setattr(main, "BAKED_MODEL_PATH", baked)
+
+    assert main._resolve_model_path() == mounted

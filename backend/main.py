@@ -47,7 +47,9 @@ from rag.config import RAGConfig  # noqa: E402
 from rag.rag_pipeline import RAG  # noqa: E402
 
 DOCS_PATH = _REPO_ROOT / "dataset" / "result_chunks.csv"
+# Модель эмбеддингов: сначала смонтированная с хоста, затем запасная из образа.
 MODEL_PATH = _REPO_ROOT / "models" / "multilingual-e5-small"
+BAKED_MODEL_PATH = Path("/opt/models/multilingual-e5-small")
 
 MAX_TURNS = 8              # реплик в запросе к агенту
 MAX_CHARS = 6000           # суммарная длина истории
@@ -92,6 +94,20 @@ _CHAT_LOCKS: dict[str, asyncio.Lock] = {}
 # ---------------------------------------------------------------------------
 
 
+def _resolve_model_path() -> Path:
+    """Выбрать каталог модели эмбеддингов.
+
+    На хосте ``./models`` может быть пустым: Compose всё равно монтирует его
+    в ``/app/models`` (только для чтения), поэтому проверяем сначала монтирование,
+    а затем копию, загруженную в образ при сборке.
+    """
+    for candidate in (MODEL_PATH, BAKED_MODEL_PATH):
+        if (candidate / "config.json").is_file():
+            return candidate
+    # Ничего не нашли — вернуть ожидаемый путь, чтобы ошибка была понятной.
+    return MODEL_PATH
+
+
 def warm_up() -> None:
     """Прочитать корпус, собрать локальный индекс и создать агента."""
     global AGENT, _WARMUP_ERROR
@@ -105,7 +121,7 @@ def warm_up() -> None:
         rag = RAG(
             RAGConfig(
                 embedding_type="local",
-                embedding_model=str(MODEL_PATH),
+                embedding_model=str(_resolve_model_path()),
                 use_reranker=False,
             )
         )
