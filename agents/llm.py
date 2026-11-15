@@ -556,7 +556,10 @@ def fallback_grade(
             SubqueryGrade(
                 subquery_id=subquery.id,
                 coverage="full" if has_chunks else "none",
-                missing_aspects=[] if has_chunks else ["Нет релевантных фрагментов."],
+                evidence_type="direct" if has_chunks else "none",
+                missing_required_aspects=(
+                    [] if has_chunks else ["Нет релевантных фрагментов."]
+                ),
                 reason="Эвристика по наличию фрагментов.",
             )
         )
@@ -570,12 +573,15 @@ def fallback_grade(
     missing = [
         aspect
         for grade in grades
-        for aspect in grade.missing_aspects
+        for aspect in grade.missing_required_aspects
     ]
     return RetrievalGradeResult(
         subqueries=grades,
         overall=overall,
-        missing_aspects=list(dict.fromkeys(missing)),
+        evidence_type=(
+            "direct" if overall == "full" else "related" if overall == "partial" else "none"
+        ),
+        missing_required_aspects=list(dict.fromkeys(missing)),
     )
 
 
@@ -600,13 +606,39 @@ def _normalize_grade(
             continue
 
         coverage = grade.coverage
+        evidence_type = grade.evidence_type
+        if coverage not in {"full", "partial", "none"}:
+            if coverage == "direct":
+                coverage = "full"
+                evidence_type = "direct"
+            elif coverage == "contradiction":
+                coverage = "partial"
+                evidence_type = "contradiction"
+            elif coverage == "related":
+                coverage = "partial"
+                evidence_type = "related"
         if coverage not in {"full", "partial", "none"}:
             coverage = "none"
+        if evidence_type not in {"direct", "contradiction", "related", "none"}:
+            evidence_type = "none"
+        if evidence_type == "none" and coverage in {"full", "partial"}:
+            evidence_type = "direct" if coverage == "full" else "related"
+        required = _as_text_list(
+            grade.missing_required_aspects or grade.missing_aspects
+        )
         normalized.append(
             SubqueryGrade(
                 subquery_id=subquery.id,
                 coverage=coverage,
-                missing_aspects=_as_text_list(grade.missing_aspects),
+                evidence_type=evidence_type,
+                missing_aspects=required,
+                missing_required_aspects=required,
+                missing_optional_details=_as_text_list(
+                    grade.missing_optional_details
+                ),
+                unsupported_user_assumptions=_as_text_list(
+                    grade.unsupported_user_assumptions
+                ),
                 reason=grade.reason,
             )
         )
@@ -620,12 +652,35 @@ def _normalize_grade(
     missing = [
         aspect
         for grade in normalized
-        for aspect in grade.missing_aspects
+        for aspect in grade.missing_required_aspects
     ]
+    optional = [
+        aspect
+        for grade in normalized
+        for aspect in grade.missing_optional_details
+    ]
+    assumptions = [
+        assumption
+        for grade in normalized
+        for assumption in grade.unsupported_user_assumptions
+    ]
+    evidence_types = {grade.evidence_type for grade in normalized}
+    overall_evidence = (
+        "contradiction"
+        if "contradiction" in evidence_types
+        else "direct"
+        if overall == "full"
+        else "related"
+        if overall == "partial"
+        else "none"
+    )
     return RetrievalGradeResult(
         subqueries=normalized,
         overall=overall,
-        missing_aspects=list(dict.fromkeys(missing)),
+        evidence_type=overall_evidence,
+        missing_required_aspects=list(dict.fromkeys(missing)),
+        missing_optional_details=list(dict.fromkeys(optional)),
+        unsupported_user_assumptions=list(dict.fromkeys(assumptions)),
     )
 
 
@@ -649,7 +704,6 @@ def grade_retrieval(
     context_text = format_grouped_context(
         subqueries,
         contexts,
-        settings.max_grade_context_chars,
     )
     subqueries_data = [
         {"id": subquery.id, "text": subquery.text, "kind": subquery.kind}
@@ -679,20 +733,61 @@ def grade_retrieval(
                     item["subquery_id"] = item.pop("id")
                 if "missing_aspects" in item:
                     item["missing_aspects"] = _as_text_list(item["missing_aspects"])
+                for field in (
+                    "missing_required_aspects",
+                    "missing_optional_details",
+                    "unsupported_user_assumptions",
+                ):
+                    if field in item:
+                        item[field] = _as_text_list(item[field])
                 coverage = item.get("coverage")
                 if isinstance(coverage, str):
                     coverage = coverage.strip().lower()
+                    if coverage in {"direct", "contradiction", "related"}:
+                        item.setdefault("evidence_type", coverage)
+                        coverage = (
+                            "full" if coverage == "direct" else "partial"
+                        )
                     item["coverage"] = coverage
                 if item.get("coverage") not in {"full", "partial", "none"}:
                     item["coverage"] = "none"
+                evidence_type = item.get("evidence_type")
+                if isinstance(evidence_type, str):
+                    item["evidence_type"] = evidence_type.strip().lower()
+                if item.get("evidence_type") not in {
+                    "direct",
+                    "contradiction",
+                    "related",
+                    "none",
+                }:
+                    item["evidence_type"] = "none"
         if "missing_aspects" in data:
             data["missing_aspects"] = _as_text_list(data["missing_aspects"])
+        for field in (
+            "missing_required_aspects",
+            "missing_optional_details",
+            "unsupported_user_assumptions",
+        ):
+            if field in data:
+                data[field] = _as_text_list(data[field])
         overall = data.get("overall")
         if isinstance(overall, str):
             overall = overall.strip().lower()
-            data["overall"] = overall
+            if overall in {"direct", "contradiction", "related"}:
+                data.setdefault("evidence_type", overall)
+                data["overall"] = "full" if overall == "direct" else "partial"
         if data.get("overall") not in {None, "full", "partial", "none"}:
             data["overall"] = "none"
+        evidence_type = data.get("evidence_type")
+        if isinstance(evidence_type, str):
+            data["evidence_type"] = evidence_type.strip().lower()
+        if data.get("evidence_type") not in {
+            "direct",
+            "contradiction",
+            "related",
+            "none",
+        }:
+            data["evidence_type"] = "none"
         try:
             parsed = RetrievalGradeResult.model_validate(data)
         except Exception as exc:
@@ -767,7 +862,7 @@ def generate_answer(
     budget_remaining: int | None = None,
 ) -> str:
     """Сгенерировать ответ строго по RAG-контексту."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return no_data_answer(question)
 
@@ -851,6 +946,9 @@ def fallback_verification(
             grounded=False,
             answers_question=False,
             citation_ok=False,
+            core_answer_supported=False,
+            core_answer_relevant=False,
+            premise_corrected=False,
             failure_type="policy",
             reason="Пустой ответ.",
         )
@@ -861,6 +959,9 @@ def fallback_verification(
             grounded=True,
             answers_question=True,
             citation_ok=False,
+            core_answer_supported=True,
+            core_answer_relevant=True,
+            premise_corrected=True,
             failure_type="citation",
             fix_hint="Исправь ссылки на источники по doc_id из контекста.",
             reason="Ссылки не соответствуют контексту.",
@@ -872,6 +973,9 @@ def fallback_verification(
         answers_question=True,
         citation_ok=True,
         premise_ok=True,
+        core_answer_supported=True,
+        core_answer_relevant=True,
+        premise_corrected=True,
         failure_type="none",
         reason="LLM недоступна, использована эвристика.",
     )
@@ -888,13 +992,16 @@ def verify_answer(
     budget_remaining: int | None = None,
 ) -> VerificationResult:
     """Проверить заземлённость, полноту и корректность ссылок."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return VerificationResult(
             verdict="refuse",
             grounded=False,
             answers_question=False,
             citation_ok=False,
+            core_answer_supported=False,
+            core_answer_relevant=False,
+            premise_corrected=False,
             failure_type="retrieval",
             missing_evidence=["В базе знаний нет подтверждённых фрагментов."],
             reason="Контекст пуст.",
@@ -926,6 +1033,17 @@ def verify_answer(
         for key in ("missing_evidence",):
             if key in data:
                 data[key] = _as_text_list(data[key])
+        if "optional_details_missing" in data:
+            data["optional_details_missing"] = _as_text_list(
+                data["optional_details_missing"]
+            )
+        for field, fallback in (
+            ("core_answer_supported", "grounded"),
+            ("core_answer_relevant", "answers_question"),
+            ("premise_corrected", "premise_ok"),
+        ):
+            if field not in data and fallback in data:
+                data[field] = bool(data[fallback])
         verdict = data.get("verdict")
         if isinstance(verdict, str):
             verdict = verdict.strip().lower()
@@ -963,11 +1081,18 @@ def verify_answer(
         and parsed.answers_question
         and parsed.citation_ok
         and parsed.premise_ok
+        and parsed.core_answer_relevant
+        and parsed.premise_corrected
     ):
-        if parsed.failure_type == "retrieval":
+        if not parsed.core_answer_supported:
+            parsed = parsed.model_copy(update={"verdict": "refuse"})
+        elif parsed.failure_type == "retrieval":
             parsed = parsed.model_copy(update={"verdict": "re_retrieve"})
         else:
             parsed = parsed.model_copy(update={"verdict": "revise_answer"})
+
+    if parsed.core_answer_supported and parsed.verdict == "refuse":
+        parsed = parsed.model_copy(update={"verdict": "revise_answer"})
 
     return parsed
 
@@ -983,7 +1108,7 @@ def revise_answer(
     budget_remaining: int | None = None,
 ) -> str:
     """Исправить черновик ответа по замечаниям проверяющего."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return no_data_answer(question)
 

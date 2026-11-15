@@ -168,6 +168,22 @@ class AppendSourcesTest(unittest.TestCase):
         self.assertIn("- 152-ФЗ, ст. 9\n", answer + "\n")
         self.assertNotIn("— 152-ФЗ", answer)
 
+    def test_omits_long_contract_header(self) -> None:
+        answer = append_sources(
+            "Ответ.",
+            [
+                SourceRef(
+                    "Договор аренды № А-08/2024",
+                    "ДОГОВОР АРЕНДЫ НЕЖИЛОГО ПОМЕЩЕНИЯ № А-08/2024 "
+                    "Московская область, г. Химки — 1 августа 2024 г. "
+                    "ООО «Северный Склад», именуемое в дальнейшем «Арендодатель»",
+                )
+            ],
+        )
+
+        self.assertIn("- Договор аренды № А-08/2024", answer)
+        self.assertNotIn("Московская область", answer)
+
     def test_does_not_duplicate_existing_block(self) -> None:
         text = "Ответ.\n\nИсточники:\n- 152-ФЗ, ст. 9"
 

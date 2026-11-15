@@ -163,6 +163,36 @@ class GradeRetrievalTest(unittest.TestCase):
         self.assertEqual(result.overall, "none")
         completion.assert_not_called()
 
+    def test_preserves_contradiction_and_required_missing_fields(self) -> None:
+        raw = (
+            '{"subqueries":[{"subquery_id":1,"coverage":"contradiction",'
+            '"evidence_type":"contradiction",'
+            '"missing_required_aspects":[],"missing_optional_details":'
+            '["форма уведомления"],'
+            '"unsupported_user_assumptions":["сумма 500 000"],'
+            '"reason":"контекст указывает другую сумму"}],'
+            '"overall":"contradiction","evidence_type":"contradiction",'
+            '"missing_required_aspects":[]}'
+        )
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = grade_retrieval(
+                "Почему сумма 500 000 рублей?",
+                [make_subquery()],
+                [make_context()],
+                settings=make_settings(),
+            )
+
+        self.assertEqual(result.overall, "partial")
+        self.assertEqual(result.evidence_type, "contradiction")
+        self.assertEqual(
+            result.subqueries[0].unsupported_user_assumptions,
+            ["сумма 500 000"],
+        )
+        self.assertEqual(
+            result.subqueries[0].missing_optional_details,
+            ["форма уведомления"],
+        )
+
     def test_missing_subquery_grade_uses_heuristic(self) -> None:
         raw = '{"subqueries":[],"overall":"none","missing_aspects":[]}'
         with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
@@ -279,7 +309,7 @@ class VerifyAnswerTest(unittest.TestCase):
 
         self.assertEqual(result.verdict, "pass")
 
-    def test_inconsistent_pass_becomes_revision(self) -> None:
+    def test_unsupported_core_answer_becomes_refusal(self) -> None:
         raw = (
             '{"verdict":"pass","grounded":false,"answers_question":true,'
             '"citation_ok":true,"premise_ok":true,"failure_type":"generation",'
@@ -294,7 +324,8 @@ class VerifyAnswerTest(unittest.TestCase):
                 settings=make_settings(),
             )
 
-        self.assertEqual(result.verdict, "revise_answer")
+        self.assertEqual(result.verdict, "refuse")
+        self.assertFalse(result.core_answer_supported)
 
     def test_bad_citation_becomes_revision_on_fallback(self) -> None:
         with patch("agents.llm._chat_completion", new=Mock(return_value="не json")):
@@ -376,7 +407,7 @@ class ContextLimitTest(unittest.TestCase):
             )
 
         messages = completion.call_args.kwargs["messages"]
-        self.assertNotIn("ХВОСТ", messages[1].content)
+        self.assertIn("ХВОСТ", messages[1].content)
 
     def test_generate_uses_answer_context_limit(self) -> None:
         completion = Mock(return_value="Ответ")
@@ -394,7 +425,7 @@ class ContextLimitTest(unittest.TestCase):
             )
 
         messages = completion.call_args.kwargs["messages"]
-        self.assertNotIn("ХВОСТ", messages[1].content)
+        self.assertIn("ХВОСТ", messages[1].content)
 
 
 class ChatCompletionTest(unittest.TestCase):

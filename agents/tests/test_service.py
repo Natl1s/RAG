@@ -94,7 +94,7 @@ class AgentServiceTest(unittest.TestCase):
 
         self.assertIn("[Договор]", answer)
         self.assertIn("Ответ по документу", answer)
-        self.assertIn("Источники:", answer)
+        self.assertNotIn("Источники:", answer)
         self.assertNotIn("doc_id", answer)
 
     def test_async_answer_returns_result(self) -> None:

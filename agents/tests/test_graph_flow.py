@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from agents.config import Settings
-from agents.nodes import route_after_grade
+from agents.nodes import make_rewrite_node, route_after_grade
 from agents.service import AgentService
 from agents.state import (
     ClarificationRequest,
@@ -144,6 +144,43 @@ class GraphFlowTest(unittest.TestCase):
         self.assertIsNotNone(result.clarification)
         self.assertEqual(self.rag.calls, [])
 
+    def test_searches_complete_question_before_asking_for_contract_number(self) -> None:
+        understand = make_understand()
+        understand.standalone_query = (
+            "По договору с «Северным Складом» нас должны пропускать ночью?"
+        )
+        understand.subqueries = [
+            SubQuery(
+                id=1,
+                text=understand.standalone_query,
+                part_ids=[1],
+                kind="fact",
+            )
+        ]
+        understand.clarification = ClarificationRequest(
+            needed=True,
+            question="Уточните, пожалуйста, номер договора.",
+            missing_slots=["номер договора"],
+        )
+        self._patch("understand_query", Mock(return_value=understand))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
+        self._patch(
+            "generate_answer",
+            Mock(return_value="Ответ [doc_id: doc-1]"),
+        )
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
+        service = AgentService(self.rag, settings=self.settings)
+
+        result = asyncio.run(
+            service.aanswer(
+                "u-1",
+                "По договору с «Северным Складом» нас должны пропускать ночью?",
+            )
+        )
+
+        self.assertNotEqual(result.status, "clarification")
+        self.assertEqual(self.rag.calls, [understand.standalone_query])
+
     def test_clarification_is_not_repeated_before_retrieval(self) -> None:
         understand = make_understand()
         understand.clarification = ClarificationRequest(
@@ -221,7 +258,6 @@ class GraphFlowTest(unittest.TestCase):
             [
                 "налоги",
                 "налоги и сборы",
-                "Документ права и обязанности сторон нет данных",
             ],
         )
 
@@ -239,7 +275,7 @@ class GraphFlowTest(unittest.TestCase):
 
         self.assertIn("[Документ]", answer.answer)
         self.assertNotIn("doc_id", answer.answer)
-        self.assertIn("Источники:", answer.answer)
+        self.assertNotIn("Источники:", answer.answer)
 
     def test_rewrite_is_limited_per_round(self) -> None:
         subqueries = [
@@ -296,6 +332,78 @@ class GraphFlowTest(unittest.TestCase):
         state["coverage"] = "none"
         self.assertEqual(route_after_grade(state, self.settings), "finalize")
 
+    def test_false_premise_generates_from_available_context(self) -> None:
+        state = {
+            "coverage": "partial",
+            "premise_check": PremiseCheck(
+                has_false_premise=True,
+                false_premise="Неверное утверждение",
+            ),
+            "clarification": ClarificationRequest(needed=True),
+            "total_steps": 0,
+            "retrieval_attempts": 0,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "generate")
+
+    def test_false_premise_without_context_refuses_honestly(self) -> None:
+        state = {
+            "coverage": "none",
+            "premise_check": PremiseCheck(
+                has_false_premise=True,
+                false_premise="Неверное утверждение",
+            ),
+            "total_steps": 0,
+            "retrieval_attempts": 0,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "finalize")
+
+    def test_context_is_generated_even_when_grade_is_none(self) -> None:
+        state = {
+            "coverage": "none",
+            "contexts": [ContextChunk(text="По договору плата 450 000 рублей.")],
+            "total_steps": 0,
+            "retrieval_attempts": 1,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "generate")
+
+    def test_rewrite_is_not_repeated_for_subquery(self) -> None:
+        subquery = SubQuery(
+            id=1,
+            text="налоги и сборы",
+            coverage="none",
+            attempts=1,
+        )
+        rewrite = Mock(side_effect=AssertionError("rewrite must not be called"))
+        self._patch("rewrite_subquery", rewrite)
+
+        result = make_rewrite_node(self.settings)(
+            {
+                "subqueries": [subquery],
+                "contexts": [],
+                "tried_queries": [],
+                "total_steps": 0,
+                "used_tokens": 0,
+            }
+        )
+
+        self.assertEqual(result["subqueries"], [subquery])
+        rewrite.assert_not_called()
+        self.assertEqual(
+            route_after_grade(
+                {
+                    "coverage": "none",
+                    "subqueries": [subquery],
+                    "retrieval_attempts": 2,
+                    "total_steps": 2,
+                },
+                self.settings,
+            ),
+            "generate",
+        )
+
     def test_hard_budget_prevents_llm_calls(self) -> None:
         builder = patch(
             "agents.llm._build_llm",
@@ -328,7 +436,7 @@ class GraphFlowTest(unittest.TestCase):
         answer = asyncio.run(service.aanswer("u-1", "неизвестный вопрос"))
 
         self.assertIn("нет документов", answer.answer)
-        self.assertEqual(len(self.rag.calls), 3)
+        self.assertEqual(len(self.rag.calls), 2)
 
 
 if __name__ == "__main__":
