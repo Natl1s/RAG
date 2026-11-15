@@ -33,10 +33,14 @@ def client():
     main._HISTORY.clear()
     main._CHAT_LOCKS.clear()
     main.AGENT = FakeAgent()
+    main._WARMUP_ERROR = None
+    main._READY.set()
     try:
         yield TestClient(main.app)
     finally:
         main.AGENT = None
+        main._WARMUP_ERROR = None
+        main._READY.set()
         main._HISTORY.clear()
         main._CHAT_LOCKS.clear()
 
@@ -59,12 +63,37 @@ def test_health(client: TestClient) -> None:
     assert body["agent"] is True
 
 
+def test_health_starting_while_warming_up(client: TestClient) -> None:
+    main.AGENT = None
+    main._WARMUP_ERROR = None
+    body = client.get("/api/health").json()
+    assert body == {"status": "starting", "agent": False}
+
+
+def test_health_reports_warmup_error(client: TestClient) -> None:
+    main.AGENT = None
+    main._WARMUP_ERROR = "RuntimeError: модель не загрузилась"
+    body = client.get("/api/health").json()
+    assert body["status"] == "error"
+    assert body["agent"] is False
+    assert "модель не загрузилась" in body["detail"]
+
+
 def test_chat_streams_events(client: TestClient) -> None:
     body = post_chat(client, "Любой вопрос", "tab-aaaa-1111")
     assert '"type": "meta"' in body
     assert '"type": "token"' in body
     assert '"type": "done"' in body
     assert '"answer": "тестовый ответ"' in body
+    assert "[DONE]" in body
+
+
+def test_chat_reports_warmup_error(client: TestClient) -> None:
+    main.AGENT = None
+    main._WARMUP_ERROR = "RuntimeError: модель не загрузилась"
+    body = post_chat(client, "Любой вопрос", "tab-cccc-3333")
+    assert '"type": "error"' in body
+    assert "модель не загрузилась" in body
     assert "[DONE]" in body
 
 
@@ -211,121 +240,3 @@ def test_reload_cancels_pending_deletion(client: TestClient) -> None:
 
     assert client.get("/api/conversations/tab-aaaa-1111?ts=2000000000001").status_code == 200
     assert main._HISTORY["tab-aaaa-1111"].closing_at is None
-
-
-def test_resilient_rag_disables_reranker_on_failure() -> None:
-    class Config:
-        def __init__(self) -> None:
-            self.use_reranker = True
-
-    class FakeRAG:
-        def __init__(self) -> None:
-            self.config = Config()
-            self.calls = 0
-
-        def search_chunks(self, query: str) -> list[str]:
-            self.calls += 1
-            if self.config.use_reranker:
-                raise RuntimeError("simulated rerank 402")
-            return ["chunk"]
-
-    rag = FakeRAG()
-    proxy = main.ResilientRAG(rag)  # type: ignore[arg-type]
-
-    assert proxy.search_chunks("вопрос") == ["chunk"]
-    assert rag.config.use_reranker is False
-    assert rag.calls == 2
-
-
-def test_resilient_rag_switches_to_bm25_when_search_keeps_failing() -> None:
-    class Config:
-        def __init__(self) -> None:
-            self.use_reranker = True
-            self.retrieval_type = "hybrid"
-
-    class FakeRAG:
-        def __init__(self) -> None:
-            self.config = Config()
-            self.retrievers = {"bm25": object()}
-            self.types: list[str] = []
-
-        def search_chunks(self, query: str) -> list[str]:
-            self.types.append(self.config.retrieval_type)
-            if self.config.retrieval_type != "bm25":
-                raise RuntimeError("embedding 401")
-            return ["chunk"]
-
-    rag = FakeRAG()
-    proxy = main.ResilientRAG(rag)  # type: ignore[arg-type]
-
-    assert proxy.search_chunks("вопрос") == ["chunk"]
-    assert rag.types == ["hybrid", "hybrid", "bm25"]
-    assert rag.config.retrieval_type == "bm25"
-    assert rag.config.use_reranker is False
-
-
-def test_resilient_rag_reraises_when_bm25_is_unavailable() -> None:
-    class Config:
-        use_reranker = False
-        retrieval_type = "bm25"
-
-    class FakeRAG:
-        config = Config()
-        retrievers = {"bm25": object()}
-
-        def search_chunks(self, query: str) -> list[str]:
-            raise RuntimeError("capital failure")
-
-    proxy = main.ResilientRAG(FakeRAG())  # type: ignore[arg-type]
-
-    with pytest.raises(RuntimeError, match="capital failure"):
-        proxy.search_chunks("вопрос")
-
-
-def test_build_rag_falls_back_to_bm25(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeRAG:
-        def __init__(self, config) -> None:
-            self.config = config
-            self.embedder = self
-            self.built = False
-
-        def encode_queries(self, texts: list[str]) -> list[list[float]]:
-            raise RuntimeError("401 embeddings")
-
-        def build(self, documents) -> None:
-            self.built = True
-
-    monkeypatch.setattr(main, "RAG", FakeRAG)
-    monkeypatch.setattr(main.pd, "read_csv", lambda _path: object())
-
-    rag = main._build_rag(client=object())  # type: ignore[arg-type]
-
-    assert rag.built is True
-    assert rag.config.retrieval_type == "bm25"
-    assert rag.config.use_dense is False
-    assert main.RETRIEVAL_MODE == "bm25"
-
-
-def test_build_rag_keeps_hybrid_when_embeddings_work(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FakeRAG:
-        def __init__(self, config) -> None:
-            self.config = config
-            self.embedder = self
-            self.built = False
-
-        def encode_queries(self, texts: list[str]) -> list[list[float]]:
-            return [[0.0]]
-
-        def build(self, documents) -> None:
-            self.built = True
-
-    monkeypatch.setattr(main, "RAG", FakeRAG)
-    monkeypatch.setattr(main.pd, "read_csv", lambda _path: object())
-
-    rag = main._build_rag(client=object())  # type: ignore[arg-type]
-
-    assert rag.built is True
-    assert rag.config.retrieval_type == "hybrid"
-    assert main.RETRIEVAL_MODE == "hybrid"

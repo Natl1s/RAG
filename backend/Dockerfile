@@ -3,7 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    SENTENCE_TRANSFORMERS_HOME=/app/data/cache/embeddings
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 WORKDIR /app
 
@@ -15,12 +16,11 @@ COPY rag ./rag
 COPY script ./script
 COPY agents ./agents
 
-# Готовый корпус чанков: из него строится RAG-индекс на старте.
+# Готовый корпус чанков: из него строится индекс на старте.
 COPY dataset/result_chunks.csv ./dataset/result_chunks.csv
-COPY dataset/dataset_tool.py ./dataset/dataset_tool.py
-RUN sed -i 's/\r$//' /app/backend/docker-entrypoint.sh && chmod +x /app/backend/docker-entrypoint.sh
-ENTRYPOINT ["/app/backend/docker-entrypoint.sh"]
 
+# Локальная модель эмбеддингов не копируется в образ: compose монтирует
+# ./models в /app/models, чтобы не гонять 1.5 ГБ через build context.
 WORKDIR /app/backend
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
