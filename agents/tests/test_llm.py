@@ -407,7 +407,7 @@ class ContextLimitTest(unittest.TestCase):
             )
 
         messages = completion.call_args.kwargs["messages"]
-        self.assertNotIn("ХВОСТ", messages[1].content)
+        self.assertIn("ХВОСТ", messages[1].content)
 
     def test_generate_uses_answer_context_limit(self) -> None:
         completion = Mock(return_value="Ответ")
@@ -425,7 +425,7 @@ class ContextLimitTest(unittest.TestCase):
             )
 
         messages = completion.call_args.kwargs["messages"]
-        self.assertNotIn("ХВОСТ", messages[1].content)
+        self.assertIn("ХВОСТ", messages[1].content)
 
 
 class ChatCompletionTest(unittest.TestCase):

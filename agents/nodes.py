@@ -249,10 +249,14 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
                     chunks = []
 
                 logger.info(
-                    "RAG поиск: подзапрос=%s, запрос=%r, найдено=%s",
+                    "RAG поиск: подзапрос=%s, запрос=%r, найдено=%s, chunk_ids=%s",
                     subquery.id,
                     query,
                     len(chunks or []),
+                    [
+                        getattr(chunk, "chunk_id", "")
+                        for chunk in (chunks or [])
+                    ],
                 )
                 query_chunks: list[Any] = []
                 for chunk in chunks or []:
@@ -285,9 +289,18 @@ def make_retrieve_node(rag: RAG, settings: Settings) -> Node:
             chunk for chunk in previous_contexts if not chunk.subquery_ids
         )
 
+        merged_contexts = merge_contexts(collected)
+        logger.info(
+            "Контекст агента: подзапросы=%s, chunk_ids=%s",
+            [subquery.id for subquery in subqueries],
+            [chunk.chunk_id for chunk in merged_contexts],
+        )
+
         return {
             "subqueries": subqueries,
-            "contexts": merge_contexts(collected, settings.max_merged_chunks),
+            # RAG/reranker уже определили состав и порядок выдачи. Агент
+            # только дедуплицирует одинаковые chunk_id и ничего не отбрасывает.
+            "contexts": merged_contexts,
             "tried_queries": tried_queries,
             "retrieval_attempts": state.get("retrieval_attempts", 0) + 1,
         }

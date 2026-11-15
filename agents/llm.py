@@ -704,7 +704,6 @@ def grade_retrieval(
     context_text = format_grouped_context(
         subqueries,
         contexts,
-        settings.max_grade_context_chars,
     )
     subqueries_data = [
         {"id": subquery.id, "text": subquery.text, "kind": subquery.kind}
@@ -863,7 +862,7 @@ def generate_answer(
     budget_remaining: int | None = None,
 ) -> str:
     """Сгенерировать ответ строго по RAG-контексту."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return no_data_answer(question)
 
@@ -993,7 +992,7 @@ def verify_answer(
     budget_remaining: int | None = None,
 ) -> VerificationResult:
     """Проверить заземлённость, полноту и корректность ссылок."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return VerificationResult(
             verdict="refuse",
@@ -1109,7 +1108,7 @@ def revise_answer(
     budget_remaining: int | None = None,
 ) -> str:
     """Исправить черновик ответа по замечаниям проверяющего."""
-    context_text = format_context(contexts, settings.max_answer_context_chars)
+    context_text = format_context(contexts)
     if not context_text:
         return no_data_answer(question)
 

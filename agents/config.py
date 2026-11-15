@@ -106,11 +106,11 @@ class Settings:
     max_rewrite_subqueries_per_round:
         Сколько проблемных подзапросов разрешено переформулировать за раунд.
     max_merged_chunks:
-        Максимальное число фрагментов после объединения результатов.
+        Устаревший параметр совместимости. Результаты больше не обрезаются.
     max_grade_context_chars:
-        Максимальная длина контекста в символах для промпта-оценщика.
+        Устаревший параметр совместимости. Контекст grader не обрезается.
     max_answer_context_chars:
-        Максимальная длина контекста в символах для генерации и проверки.
+        Устаревший параметр совместимости. Контекст ответа не обрезается.
     max_total_tokens_per_question:
         Жёсткий бюджет токенов на один вопрос (input + output).
     max_total_tokens_soft:
@@ -133,9 +133,9 @@ class Settings:
     max_rewrite_subqueries_per_round: int = 2
     max_merged_chunks: int = 8
     max_grade_context_chars: int = 4000
-    max_answer_context_chars: int = 5000
-    max_total_tokens_per_question: int = 20000
-    max_total_tokens_soft: int = 15000
+    max_answer_context_chars: int = 10000
+    max_total_tokens_per_question: int = 50000
+    max_total_tokens_soft: int = 25000
     history_limit: int = 8
     temperature: float = 0.0
 

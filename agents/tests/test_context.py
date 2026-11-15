@@ -170,7 +170,7 @@ class MergeContextsTest(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0].subquery_ids, [1, 2])
 
-    def test_respects_max_chunks(self) -> None:
+    def test_preserves_all_chunks_despite_legacy_max_chunks(self) -> None:
         chunks = [
             ContextChunk(doc_id=f"doc-{index}", chunk_id=f"chunk-{index}", text="Т")
             for index in range(5)
@@ -178,7 +178,10 @@ class MergeContextsTest(unittest.TestCase):
 
         merged = merge_contexts(chunks, max_chunks=2)
 
-        self.assertEqual([chunk.doc_id for chunk in merged], ["doc-0", "doc-1"])
+        self.assertEqual(
+            [chunk.doc_id for chunk in merged],
+            ["doc-0", "doc-1", "doc-2", "doc-3", "doc-4"],
+        )
 
 
 class SourceLabelTest(unittest.TestCase):
@@ -317,7 +320,7 @@ class FormatContextTest(unittest.TestCase):
         self.assertIn("Первый пункт", formatted)
         self.assertIn("Второй пункт", formatted)
 
-    def test_truncates_by_max_chars(self) -> None:
+    def test_ignores_legacy_max_chars_without_losing_text(self) -> None:
         chunk = ContextChunk(
             doc_id="doc-1",
             chunk_id="chunk-1",
@@ -328,9 +331,9 @@ class FormatContextTest(unittest.TestCase):
 
         formatted = format_context([chunk], max_chars=80)
 
-        self.assertLessEqual(len(formatted), 80)
+        self.assertIn("Т" * 200, formatted)
 
-    def test_merges_contiguous_chunks_by_offsets(self) -> None:
+    def test_preserves_contiguous_chunks_and_order(self) -> None:
         first = ContextChunk(
             doc_id="doc-1",
             chunk_id="chunk-1",
@@ -348,11 +351,11 @@ class FormatContextTest(unittest.TestCase):
 
         formatted = format_context([first, second])
 
-        self.assertIn("0123456789abcde", formatted)
-        self.assertNotIn("[...]", formatted)
-        self.assertIn("chunk_ids: chunk-1, chunk-2", formatted)
+        self.assertIn("0123456789", formatted)
+        self.assertIn("56789abcde", formatted)
+        self.assertLess(formatted.index("chunk-1"), formatted.index("chunk-2"))
 
-    def test_keeps_disjoint_chunks_separate(self) -> None:
+    def test_keeps_disjoint_chunks_separate_without_loss_marker(self) -> None:
         first = ContextChunk(
             doc_id="doc-1",
             chunk_id="chunk-1",
@@ -372,7 +375,7 @@ class FormatContextTest(unittest.TestCase):
 
         self.assertIn("abcde", formatted)
         self.assertIn("fghij", formatted)
-        self.assertIn("[...]", formatted)
+        self.assertNotIn("[...]", formatted)
         self.assertIn("chunk_id: chunk-1", formatted)
         self.assertIn("chunk_id: chunk-2", formatted)
 
@@ -394,7 +397,7 @@ class FormatContextTest(unittest.TestCase):
 
         formatted = format_context([first, second])
 
-        self.assertIn("[...]", formatted)
+        self.assertNotIn("[...]", formatted)
 
     def test_metadata_hints_extract_status_and_edition(self) -> None:
         chunk = ContextChunk(

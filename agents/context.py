@@ -478,8 +478,12 @@ def normalize_chunk(chunk: Any, subquery_id: int) -> ContextChunk | None:
     )
 
 
-def merge_contexts(chunks: list[ContextChunk], max_chunks: int) -> list[ContextChunk]:
-    """Объединить фрагменты по ``chunk_id`` и ограничить их количество."""
+def merge_contexts(chunks: list[ContextChunk], max_chunks: int = 0) -> list[ContextChunk]:
+    """Дедуплицировать фрагменты, сохранив порядок выдачи RAG.
+
+    ``max_chunks`` оставлен в сигнатуре для совместимости, но намеренно не
+    применяется: количество результатов определяет retrieval/reranker.
+    """
     merged: dict[str, ContextChunk] = {}
     for chunk in chunks:
         if not chunk.text.strip():
@@ -502,10 +506,7 @@ def merge_contexts(chunks: list[ContextChunk], max_chunks: int) -> list[ContextC
             ):
                 existing.metadata[meta_key] = meta_value
 
-    result = list(merged.values())
-    if max_chunks > 0:
-        result = result[:max_chunks]
-    return result
+    return list(merged.values())
 
 
 def metadata_hints(chunk: ContextChunk) -> dict[str, str]:
@@ -723,28 +724,52 @@ def _format_document(doc_id: str, chunks: list[ContextChunk]) -> str:
     return header or body
 
 
+def _format_chunk(chunk: ContextChunk, previous_info: str = "") -> str:
+    """Сериализовать один чанк без изменения его текста или порядка."""
+    lines: list[str] = []
+    title = document_title(chunk)
+    if title:
+        lines.append(f"title: {title}")
+    if chunk.doc_id:
+        lines.append(f"doc_id: {chunk.doc_id}")
+
+    label = source_label(chunk)
+    if label:
+        lines.append(f"source_label: {label}")
+
+    for key, value in metadata_hints(chunk).items():
+        lines.append(f"{key}: {value}")
+
+    info = _as_text(chunk.metadata.get("info"))
+    if info and info != previous_info:
+        lines.append(f"[Контекст фрагмента: {info}]")
+
+    chunk_id = chunk.chunk_id or _as_text(chunk.metadata.get("chunk_id"))
+    if chunk_id:
+        lines.append(f"chunk_id: {chunk_id}")
+    if chunk.text.strip():
+        lines.append(chunk.text.strip())
+    return "\n".join(lines)
+
+
 def format_context(chunks: list[ContextChunk], max_chars: int = 0) -> str:
-    """Собрать фрагменты в текст, соблюдая ограничение длины."""
+    """Передать все чанки в исходном порядке без обрезки и слияния.
+
+    ``max_chars`` оставлен для совместимости со старыми вызывающими кодами.
+    Он намеренно игнорируется: отбор и количество чанков определяются RAG и
+    реранкером, а не повторно агентом.
+    """
+    del max_chars
     blocks: list[str] = []
-    current_length = 0
-
-    for doc_id, group in _document_groups(chunks):
-        merged = _merge_document_group(group)
-        block = _format_document(doc_id, merged)
-        if not block:
+    previous_info = ""
+    for chunk in chunks:
+        if not chunk.text.strip():
             continue
-
-        separator = 2 if blocks else 0
-        if max_chars > 0 and current_length + separator + len(block) > max_chars:
-            remaining = max_chars - current_length - separator
-            if remaining > 0:
-                blocks.append(block[:remaining].rstrip())
-            break
-
-        blocks.append(block)
-        current_length += separator + len(block)
-
-    return "\n\n".join(blocks)
+        block = _format_chunk(chunk, previous_info)
+        if block:
+            blocks.append(block)
+        previous_info = _as_text(chunk.metadata.get("info"))
+    return "\n\n---\n\n".join(blocks)
 
 
 def format_grouped_context(
@@ -752,9 +777,9 @@ def format_grouped_context(
     chunks: list[ContextChunk],
     max_chars: int = 0,
 ) -> str:
-    """Сгруппировать контекст по подзапросам для промпта-оценщика."""
+    """Сгруппировать все найденные чанки по подзапросам без обрезки."""
+    del max_chars
     blocks: list[str] = []
-    current_length = 0
     assigned: set[int] = set()
 
     for subquery in subqueries:
@@ -764,22 +789,11 @@ def format_grouped_context(
         assigned.update(id(chunk) for chunk in selected)
         body = format_context(selected) or "Фрагменты не найдены."
         block = f"### Подзапрос {subquery.id}: {subquery.text}\n{body}"
-
-        separator = 2 if blocks else 0
-        if max_chars > 0 and current_length + separator + len(block) > max_chars:
-            remaining = max_chars - current_length - separator
-            if remaining > 0:
-                blocks.append(block[:remaining].rstrip())
-            break
-
         blocks.append(block)
-        current_length += separator + len(block)
 
     extra = [chunk for chunk in chunks if id(chunk) not in assigned]
     if extra:
         block = "### Прочие фрагменты\n" + format_context(extra)
-        separator = 2 if blocks else 0
-        if max_chars <= 0 or current_length + separator + len(block) <= max_chars:
-            blocks.append(block)
+        blocks.append(block)
 
     return "\n\n".join(blocks)
