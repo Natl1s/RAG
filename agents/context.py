@@ -718,57 +718,54 @@ def _format_document(doc_id: str, chunks: list[ContextChunk]) -> str:
         else:
             segments.append(f"{info_line}{chunk.text.strip()}")
 
-    body = "\n\n[...]\n\n".join(segment for segment in segments if segment)
+    body = "\n\n---\n\n".join(segment for segment in segments if segment)
     if header and body:
         return f"{header}\n\n{body}"
     return header or body
 
 
-def _format_chunk(chunk: ContextChunk, previous_info: str = "") -> str:
-    """Сериализовать один чанк без изменения его текста или порядка."""
-    lines: list[str] = []
-    title = document_title(chunk)
-    if title:
-        lines.append(f"title: {title}")
-    if chunk.doc_id:
-        lines.append(f"doc_id: {chunk.doc_id}")
+def _compact_groups(
+    chunks: list[ContextChunk],
+) -> list[tuple[str, list[ContextChunk]]]:
+    """Сгруппировать чанки без изменения порядка выдачи.
 
-    label = source_label(chunk)
-    if label:
-        lines.append(f"source_label: {label}")
-
-    for key, value in metadata_hints(chunk).items():
-        lines.append(f"{key}: {value}")
-
-    info = _as_text(chunk.metadata.get("info"))
-    if info and info != previous_info:
-        lines.append(f"[Контекст фрагмента: {info}]")
-
-    chunk_id = chunk.chunk_id or _as_text(chunk.metadata.get("chunk_id"))
-    if chunk_id:
-        lines.append(f"chunk_id: {chunk_id}")
-    if chunk.text.strip():
-        lines.append(chunk.text.strip())
-    return "\n".join(lines)
-
-
-def format_context(chunks: list[ContextChunk], max_chars: int = 0) -> str:
-    """Передать все чанки в исходном порядке без обрезки и слияния.
-
-    ``max_chars`` оставлен для совместимости со старыми вызывающими кодами.
-    Он намеренно игнорируется: отбор и количество чанков определяются RAG и
-    реранкером, а не повторно агентом.
+    Группировка нужна только для компактного заголовка документа. Чанки
+    объединяются исключительно если они соседние в выдаче и их metadata
+    подтверждают непрерывный фрагмент. Нерелевантные или разрозненные чанки
+    не переставляются и не удаляются.
     """
-    del max_chars
-    blocks: list[str] = []
-    previous_info = ""
+    groups: list[tuple[str, list[ContextChunk]]] = []
     for chunk in chunks:
         if not chunk.text.strip():
             continue
-        block = _format_chunk(chunk, previous_info)
+
+        doc_id = chunk.doc_id or chunk.chunk_id
+        if not groups or groups[-1][0] != doc_id:
+            groups.append((doc_id, [chunk.model_copy(deep=True)]))
+            continue
+
+        group = groups[-1][1]
+        if _can_merge(group[-1], chunk):
+            group[-1] = _merge_two_chunks(group[-1], chunk)
+        else:
+            group.append(chunk.model_copy(deep=True))
+    return groups
+
+
+def format_context(chunks: list[ContextChunk], max_chars: int = 0) -> str:
+    """Передать все чанки в исходном порядке без обрезки.
+
+    ``max_chars`` оставлен для совместимости со старыми вызывающими кодами.
+    Он намеренно игнорируется: отбор и количество чанков определяются RAG и
+    реранкером, а не повторно агентом. Соседние непрерывные чанки только
+    компактно объединяются, сохраняя исходные ``chunk_ids``.
+    """
+    del max_chars
+    blocks: list[str] = []
+    for doc_id, group in _compact_groups(chunks):
+        block = _format_document(doc_id, group)
         if block:
             blocks.append(block)
-        previous_info = _as_text(chunk.metadata.get("info"))
     return "\n\n---\n\n".join(blocks)
 
 
