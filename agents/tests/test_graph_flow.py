@@ -238,7 +238,7 @@ class GraphFlowTest(unittest.TestCase):
 
         self.assertIn("[Документ]", answer.answer)
         self.assertNotIn("doc_id", answer.answer)
-        self.assertIn("Источники:", answer.answer)
+        self.assertNotIn("Источники:", answer.answer)
 
     def test_rewrite_is_limited_per_round(self) -> None:
         subqueries = [
@@ -321,6 +321,16 @@ class GraphFlowTest(unittest.TestCase):
         }
 
         self.assertEqual(route_after_grade(state, self.settings), "finalize")
+
+    def test_context_is_generated_even_when_grade_is_none(self) -> None:
+        state = {
+            "coverage": "none",
+            "contexts": [ContextChunk(text="По договору плата 450 000 рублей.")],
+            "total_steps": 0,
+            "retrieval_attempts": 1,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "generate")
 
     def test_rewrite_is_not_repeated_for_subquery(self) -> None:
         subquery = SubQuery(
