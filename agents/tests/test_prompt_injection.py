@@ -350,7 +350,7 @@ class VerifyTrustChainTest(unittest.TestCase):
         )
 
         self.assertIn("INJECTED_OK", result)
-        self.assertIn("Источники:", result)
+        self.assertNotIn("Источники:", result)
 
     def test_fabricated_citation_survives_finalization(self) -> None:
         result = self._run(

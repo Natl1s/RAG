@@ -37,6 +37,10 @@ _NOISE_SUFFIX_RE = re.compile(
     r"\s*\((?:с изменениями|в редакции|ред\.)[^)]*\)\s*$",
     re.IGNORECASE,
 )
+_DOCUMENT_NUMBER_RE = re.compile(
+    r"(?:№|N)\s*([А-ЯЁA-Z0-9][А-ЯЁA-Z0-9./-]*)",
+    re.IGNORECASE,
+)
 _ID_CLEAN_CHARS = " \t\r\n`\"'«»[](){}.,;:"
 
 
@@ -168,6 +172,24 @@ def _short_title(value: str, limit: int = 180) -> str:
     return cut + "…"
 
 
+def _display_title(label: str, title: str) -> str:
+    """Не печатать сырой заголовок, если он лишь разворачивает имя договора."""
+    short_title = _short_title(title)
+    if not short_title or short_title.casefold() == label.casefold():
+        return ""
+
+    label_number = _DOCUMENT_NUMBER_RE.search(label)
+    title_number = _DOCUMENT_NUMBER_RE.search(title)
+    if (
+        label_number is not None
+        and title_number is not None
+        and label_number.group(1).casefold() == title_number.group(1).casefold()
+        and len(" ".join(title.split())) > 100
+    ):
+        return ""
+    return short_title
+
+
 def append_sources(answer: str, sources: list[SourceRef]) -> str:
     """Добавить блок «Источники» в конец ответа, если его ещё нет."""
     text = (answer or "").rstrip()
@@ -179,8 +201,8 @@ def append_sources(answer: str, sources: list[SourceRef]) -> str:
 
     lines = ["Источники:"]
     for ref in sources:
-        title = _short_title(ref.title)
-        if title and title.casefold() != ref.label.casefold():
+        title = _display_title(ref.label, ref.title)
+        if title:
             lines.append(f"- {ref.label} — {title}")
         else:
             lines.append(f"- {ref.label}")

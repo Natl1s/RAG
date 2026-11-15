@@ -16,7 +16,7 @@ from agents.clarification import (
     detect_context_ambiguity,
     last_assistant_asked_question,
 )
-from agents.citations import append_sources, humanize_citations
+from agents.citations import humanize_citations
 from agents.config import Settings
 from agents.context import merge_contexts, normalize_chunk
 from agents.dialog import parse_dialog, queries_similar
@@ -587,7 +587,13 @@ def make_finalize_node() -> Node:
         elif verification is not None and verification.verdict == "refuse":
             answer = no_data_answer(question)
             status = "refused"
-        elif not draft or coverage == "none":
+        elif not draft or (
+            coverage == "none"
+            and (
+                verification is None
+                or verification.verdict != "pass"
+            )
+        ):
             answer = no_data_answer(question)
             status = "refused"
         else:
@@ -595,21 +601,14 @@ def make_finalize_node() -> Node:
             status = "answered"
             if coverage == "partial":
                 status = "partial"
-                missing = state.get("missing_aspects") or []
-                if missing and "не хватает" not in answer.lower():
-                    answer = (
-                        f"{answer}\n\nВ базе знаний не хватает: "
-                        f"{', '.join(missing)}."
-                    )
             elif verification is not None and verification.verdict != "pass":
                 status = "partial"
 
         if status in {"answered", "partial"}:
-            answer, source_refs = humanize_citations(
+            answer, _ = humanize_citations(
                 answer,
                 list(state.get("contexts") or []),
             )
-            answer = append_sources(answer, source_refs)
 
         logger.info(
             "Итог по вопросу: status=%s, LLM-вызовов=%s, токенов≈%s",
@@ -657,13 +656,13 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     retrieval_attempts = state.get("retrieval_attempts", 0)
 
     # При наличии контекста исправляем ложную предпосылку без нового поиска.
-    # При coverage=none генерация всё равно завершится отказом из-за отсутствия
-    # доказательств, поэтому сразу переходим к финализации.
+    # Если контекст всё же есть, передаём его генерации даже при ошибочной
+    # оценке покрытия: противоречие пользователя может быть доказательством.
     premise_check = state.get("premise_check")
     if (
-        coverage != "none"
-        and premise_check is not None
+        premise_check is not None
         and premise_check.has_false_premise
+        and state.get("contexts")
     ):
         return "generate"
 
