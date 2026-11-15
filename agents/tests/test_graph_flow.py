@@ -144,6 +144,43 @@ class GraphFlowTest(unittest.TestCase):
         self.assertIsNotNone(result.clarification)
         self.assertEqual(self.rag.calls, [])
 
+    def test_searches_complete_question_before_asking_for_contract_number(self) -> None:
+        understand = make_understand()
+        understand.standalone_query = (
+            "По договору с «Северным Складом» нас должны пропускать ночью?"
+        )
+        understand.subqueries = [
+            SubQuery(
+                id=1,
+                text=understand.standalone_query,
+                part_ids=[1],
+                kind="fact",
+            )
+        ]
+        understand.clarification = ClarificationRequest(
+            needed=True,
+            question="Уточните, пожалуйста, номер договора.",
+            missing_slots=["номер договора"],
+        )
+        self._patch("understand_query", Mock(return_value=understand))
+        self._patch("grade_retrieval", Mock(return_value=make_grade("full")))
+        self._patch(
+            "generate_answer",
+            Mock(return_value="Ответ [doc_id: doc-1]"),
+        )
+        self._patch("verify_answer", Mock(return_value=make_verify("pass")))
+        service = AgentService(self.rag, settings=self.settings)
+
+        result = asyncio.run(
+            service.aanswer(
+                "u-1",
+                "По договору с «Северным Складом» нас должны пропускать ночью?",
+            )
+        )
+
+        self.assertNotEqual(result.status, "clarification")
+        self.assertEqual(self.rag.calls, [understand.standalone_query])
+
     def test_clarification_is_not_repeated_before_retrieval(self) -> None:
         understand = make_understand()
         understand.clarification = ClarificationRequest(

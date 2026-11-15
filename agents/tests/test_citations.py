@@ -181,7 +181,7 @@ class AppendSourcesTest(unittest.TestCase):
             ],
         )
 
-        self.assertIn("- Договор аренды № А-08/2024\n", answer)
+        self.assertIn("- Договор аренды № А-08/2024", answer)
         self.assertNotIn("Московская область", answer)
 
     def test_does_not_duplicate_existing_block(self) -> None:

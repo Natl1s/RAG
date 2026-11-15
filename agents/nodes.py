@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -50,6 +51,7 @@ __all__ = [
     "make_verify_node",
     "route_after_grade",
     "route_after_understand",
+    "route_after_verify",
 ]
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,22 @@ def _question(state: AgentState) -> str:
         or state.get("query")
         or ""
     ).strip()
+
+
+def _has_searchable_anchor(question: str) -> bool:
+    """Проверить, есть ли в вопросе опора для пробного поиска."""
+    text = (question or "").strip()
+    if not text.endswith("?"):
+        return False
+    return bool(
+        re.search(
+            r"(?:ООО|ОАО|ЗАО|ИП)\s*[«\"']?[\wЁА-я-]+"
+            r"|«[^»]+»|"
+            r"(?:договор|контракт|соглашен\w*|склад|помещен\w*)",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _budget_remaining(state: AgentState, settings: Settings) -> int:
@@ -322,7 +340,13 @@ def make_grade_node(settings: Settings) -> Node:
                 subquery.model_copy(
                     update={
                         "coverage": item.coverage,
-                        "missing_aspects": item.missing_aspects,
+                        "evidence_type": item.evidence_type,
+                        "missing_aspects": item.missing_required_aspects,
+                        "missing_required_aspects": item.missing_required_aspects,
+                        "missing_optional_details": item.missing_optional_details,
+                        "unsupported_user_assumptions": (
+                            item.unsupported_user_assumptions
+                        ),
                     }
                 )
             )
@@ -338,7 +362,13 @@ def make_grade_node(settings: Settings) -> Node:
         return {
             "subqueries": updated,
             "coverage": result.overall,
-            "missing_aspects": result.missing_aspects,
+            "evidence_type": result.evidence_type,
+            "missing_aspects": result.missing_required_aspects,
+            "missing_required_aspects": result.missing_required_aspects,
+            "missing_optional_details": result.missing_optional_details,
+            "unsupported_user_assumptions": (
+                result.unsupported_user_assumptions
+            ),
             "clarification": clarification,
             "total_steps": total_steps + step_increment,
             "used_tokens": _add_usage(state, usage),
@@ -486,7 +516,9 @@ def make_generate_node(settings: Settings) -> Node:
             state.get("history") or [],
             state.get("premise_check"),
             state.get("coverage") or "none",
-            state.get("missing_aspects") or [],
+            state.get("missing_required_aspects")
+            or state.get("missing_aspects")
+            or [],
             settings=settings,
             usage_sink=usage,
             budget_remaining=_budget_remaining(state, settings),
@@ -584,24 +616,29 @@ def make_finalize_node() -> Node:
         if not state.get("in_scope", True):
             answer = out_of_scope_answer()
             status = "refused"
-        elif verification is not None and verification.verdict == "refuse":
+        elif (
+            verification is not None
+            and verification.verdict == "refuse"
+            and not verification.core_answer_supported
+        ):
             answer = no_data_answer(question)
             status = "refused"
-        elif not draft or (
-            coverage == "none"
-            and (
-                verification is None
-                or verification.verdict != "pass"
-            )
-        ):
+        elif not draft:
             answer = no_data_answer(question)
             status = "refused"
         else:
             answer = draft
             status = "answered"
-            if coverage == "partial":
-                status = "partial"
-            elif verification is not None and verification.verdict != "pass":
+            if (
+                coverage == "partial"
+                or (
+                    verification is not None
+                    and (
+                        verification.verdict != "pass"
+                        or verification.optional_details_missing
+                    )
+                )
+            ):
                 status = "partial"
 
         if status in {"answered", "partial"}:
@@ -644,7 +681,11 @@ def route_after_understand(state: AgentState) -> str:
     if not state.get("in_scope", True):
         return "refuse"
     clarification = state.get("clarification")
-    if clarification is not None and clarification.needed:
+    if (
+        clarification is not None
+        and clarification.needed
+        and not _has_searchable_anchor(_question(state))
+    ):
         return "clarify"
     return "retrieve"
 
@@ -662,7 +703,7 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     if (
         premise_check is not None
         and premise_check.has_false_premise
-        and state.get("contexts")
+        and (coverage != "none" or state.get("contexts"))
     ):
         return "generate"
 
@@ -682,6 +723,9 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
             return "generate"
         return "finalize"
 
+    if coverage == "none" and not state.get("subqueries") and not state.get("contexts"):
+        return "finalize"
+
     can_retry = (
         retrieval_attempts < settings.max_retrieval_attempts
         and total_steps < settings.max_total_llm_calls
@@ -692,9 +736,29 @@ def route_after_grade(state: AgentState, settings: Settings) -> str:
     )
     if coverage in {"partial", "none"} and can_retry and can_rewrite:
         return "rewrite"
+    if (
+        coverage == "none"
+        and retrieval_attempts >= settings.max_retrieval_attempts
+        and (state.get("contexts") or not state.get("subqueries"))
+    ):
+        return "finalize"
     if coverage in {"partial", "none"} and total_steps < settings.max_total_llm_calls:
         return "generate"
     if coverage == "none":
         return "finalize"
     return "generate" if total_steps < settings.max_total_llm_calls else "finalize"
+
+
+def route_after_verify(state: AgentState, settings: Settings) -> str:
+    """Повторить генерацию, если основной ответ не подтверждён."""
+    verification = state.get("verification")
+    if (
+        verification is not None
+        and not verification.core_answer_supported
+        and state.get("contexts")
+        and state.get("answer_attempts", 0) < settings.max_answer_attempts
+        and state.get("total_steps", 0) < settings.max_total_llm_calls
+    ):
+        return "generate"
+    return "finalize"
 
