@@ -295,6 +295,33 @@ class GraphFlowTest(unittest.TestCase):
         state["coverage"] = "none"
         self.assertEqual(route_after_grade(state, self.settings), "finalize")
 
+    def test_false_premise_generates_from_available_context(self) -> None:
+        state = {
+            "coverage": "partial",
+            "premise_check": PremiseCheck(
+                has_false_premise=True,
+                false_premise="Неверное утверждение",
+            ),
+            "clarification": ClarificationRequest(needed=True),
+            "total_steps": 0,
+            "retrieval_attempts": 0,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "generate")
+
+    def test_false_premise_without_context_refuses_honestly(self) -> None:
+        state = {
+            "coverage": "none",
+            "premise_check": PremiseCheck(
+                has_false_premise=True,
+                false_premise="Неверное утверждение",
+            ),
+            "total_steps": 0,
+            "retrieval_attempts": 0,
+        }
+
+        self.assertEqual(route_after_grade(state, self.settings), "finalize")
+
     def test_rewrite_is_not_repeated_for_subquery(self) -> None:
         subquery = SubQuery(
             id=1,
