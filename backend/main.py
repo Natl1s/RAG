@@ -17,15 +17,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from rag.rag_pipeline import initialaze_rag, search_chunks
+from rag.config import RAGConfig
+from rag.rag_pipeline import RAG
 from pathlib import Path
+import pandas as pd
+from agents.bootstrap import build_local_service
 RETRIEVERS: dict[str, object] | None = None
 
 def warm_up(app: FastAPI) -> None:
-    global RETRIEVERS
-    if RETRIEVERS is not None:
+    docs = "./dataset/result_chunks.csv"
+    docs = pd.read_csv(docs)
+    rag_client = RAG(RAGConfig())
+    rag_client.build(docs)
+    global AGENT
+    if AGENT is not None:
         return
-    RETRIEVERS = initialaze_rag(Path(__file__).resolve().parents[1] / "dataset/data/RusLawOD")
+    AGENT = build_local_service(rag_client)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,8 +53,7 @@ class ChatRequest(BaseModel):
 
 
 def generate_answer(query: str) -> str:
-    chunks = search_chunks(query, RETRIEVERS)
-    return "\n\n".join(f"doc_id: {doc_id}\n{text}" for doc_id, text in chunks)
+    return AGENT.answer('1', query)
 
 
 def sse(obj: dict) -> str:
