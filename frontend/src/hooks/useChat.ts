@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ask } from '../api/apiSse'
+import { ask, loadConversation, resetConversation } from '../api/apiSse'
+import {
+  closeConversation,
+  getConversationId,
+  rotateConversationId,
+} from '../conversation'
 import type { Message } from '../types'
 
 const WELCOME: Message = {
@@ -19,8 +24,43 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([WELCOME])
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const conversationId = useRef<string>('')
+  if (!conversationId.current) conversationId.current = getConversationId()
 
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  // После F5 сервер помнит диалог — восстанавливаем сообщения.
+  useEffect(() => {
+    let alive = true
+    loadConversation(conversationId.current)
+      .then((turns) => {
+        if (!alive || turns.length === 0) return
+        const restored: Message[] = turns.map((turn, index) => ({
+          id: `h-${index}`,
+          role: turn.role,
+          content: turn.content,
+          timestamp: Date.now(),
+        }))
+        // Не затираем диалог, если пользователь успел что-то отправить.
+        setMessages((prev) => (prev.length > 1 ? prev : [WELCOME, ...restored]))
+      })
+      .catch(() => {
+        // 404 — это новый диалог, ничего страшного.
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Закрытие вкладки: просим сервер удалить историю.
+  useEffect(() => {
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return // страница ушла в bfcache, вкладка жива
+      closeConversation()
+    }
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [])
 
   const send = useCallback(
     async (raw: string) => {
@@ -50,7 +90,7 @@ export function useChat() {
       let finished = false
 
       try {
-        for await (const ev of ask(query, controller.signal)) {
+        for await (const ev of ask(query, conversationId.current, controller.signal)) {
           if (ev.type === 'token') {
             patch((m) => ({ ...m, content: m.content + ev.text }))
           } else if (ev.type === 'done') {
@@ -62,6 +102,8 @@ export function useChat() {
               streaming: false,
               pending: false,
             }))
+          } else if (ev.type === 'error') {
+            throw new Error(ev.message)
           }
         }
 
@@ -92,6 +134,8 @@ export function useChat() {
 
   const clear = useCallback(() => {
     abortRef.current?.abort()
+    void resetConversation(conversationId.current)
+    conversationId.current = rotateConversationId()
     setMessages([WELCOME])
   }, [])
 

@@ -11,7 +11,9 @@ export default function App() {
       <Header onClear={clear} isStreaming={isStreaming} />
       <Chat messages={messages} />
       <Composer onSend={send} onStop={stop} isStreaming={isStreaming} />
-      <footer className="app-footer">Демо-режим: ответы генерируются заглушкой.</footer>
+      <footer className="app-footer">
+        Ответы формируются по внутренней базе знаний. Проверяйте ссылки на источники.
+      </footer>
     </div>
   )
 }

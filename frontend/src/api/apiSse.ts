@@ -1,7 +1,7 @@
 // Клиент FastAPI: POST /api/chat и чтение потока Server-Sent Events.
 // Формат строки: `data: {json}\n\n`, завершение — `data: [DONE]`.
 
-import type { AskEvent } from '../types'
+import type { AskEvent, Turn } from '../types'
 
 /** Разбирает один SSE-блок и возвращает событие (или null для служебных строк). */
 function parseEvent(raw: string): AskEvent | null {
@@ -21,14 +21,18 @@ function parseEvent(raw: string): AskEvent | null {
   }
 }
 
-export async function* ask(query: string, signal?: AbortSignal): AsyncGenerator<AskEvent> {
+export async function* ask(
+  query: string,
+  conversationId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<AskEvent> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, conversation_id: conversationId, ts: Date.now() }),
     signal,
   })
 
@@ -67,4 +71,17 @@ export async function* ask(query: string, signal?: AbortSignal): AsyncGenerator<
   } finally {
     reader.releaseLock()
   }
+}
+
+/** История диалога после перезагрузки страницы. */
+export async function loadConversation(id: string): Promise<Turn[]> {
+  const res = await fetch(`/api/conversations/${id}?ts=${Date.now()}`)
+  if (!res.ok) return []
+  const data = (await res.json()) as { turns?: Turn[] }
+  return data.turns ?? []
+}
+
+/** Сброс диалога по кнопке «Очистить». */
+export async function resetConversation(id: string): Promise<void> {
+  await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
 }

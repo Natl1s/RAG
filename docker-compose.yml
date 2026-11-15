@@ -1,26 +1,69 @@
 services:
   backend:
-    volumes:
-      - psb-dataset:/app/dataset/data
-      - psb-models:/app/data/cache/embeddings
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: psb-legal-backend
+    restart: unless-stopped
+    # Значения берутся из переменных окружения, а при их отсутствии — из .env
+    # рядом с этим файлом (Compose читает его сам). Пустая строка означает
+    # «не задано»: код подставит своё значение по умолчанию.
+    environment:
+      # --- LLM ---
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      GEN_MODEL: ${GEN_MODEL:-}
+      # --- эмбеддинги и реранкер ---
+      EMB_MODEL: ${EMB_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      RERANKER_MODEL: ${RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
+      EMBEDDER_API_KEY: ${EMBEDDER_API_KEY:-}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RERANKER_TOP_N: ${RERANKER_TOP_N:-4}
+      TOP_K: ${TOP_K:-4}
+      # --- генерация ---
+      TEMPERATURE: ${TEMPERATURE:-}
+      MAX_TOKENS: ${MAX_TOKENS:-}
+      MAX_WORKERS: ${MAX_WORKERS:-}
+      CHUNKER: ${CHUNKER:-}
+      DATA_DIR: ${DATA_DIR:-}
+      HISTORY_LIMIT: ${HISTORY_LIMIT:-}
+      # --- лимиты агента ---
+      MAX_SUBQUERIES: ${MAX_SUBQUERIES:-}
+      MAX_RETRIEVAL_ATTEMPTS: ${MAX_RETRIEVAL_ATTEMPTS:-}
+      MAX_ANSWER_ATTEMPTS: ${MAX_ANSWER_ATTEMPTS:-}
+      MAX_TOTAL_LLM_CALLS: ${MAX_TOTAL_LLM_CALLS:-}
+      MAX_REWRITE_SUBQUERIES_PER_ROUND: ${MAX_REWRITE_SUBQUERIES_PER_ROUND:-}
+      MAX_MERGED_CHUNKS: ${MAX_MERGED_CHUNKS:-}
+      MAX_GRADE_CONTEXT_CHARS: ${MAX_GRADE_CONTEXT_CHARS:-}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS:-}
+      MAX_ANSWER_CONTEXT_CHARS: ${MAX_ANSWER_CONTEXT_CHARS:-}
+      MAX_TOTAL_TOKENS_PER_QUESTION: ${MAX_TOTAL_TOKENS_PER_QUESTION:-}
+      MAX_TOTAL_TOKENS_SOFT: ${MAX_TOTAL_TOKENS_SOFT:-}
+      # --- прочее ---
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LLM_LOG_FILE: ${LLM_LOG_FILE:-off}
+      DOWNLOAD_DATASET: ${DOWNLOAD_DATASET:-false}
+    volumes:
+      - psb-dataset:/app/dataset/data
     ports:
       - "8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 1200s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     container_name: psb-legal-frontend
+    restart: unless-stopped
     ports:
       - "8080:80"
     depends_on:
@@ -29,4 +72,3 @@ services:
 
 volumes:
   psb-dataset:
-  psb-models:

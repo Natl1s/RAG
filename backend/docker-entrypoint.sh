@@ -1,25 +1,19 @@
 #!/bin/sh
 set -e
 
-# --- Dataset (RusLawOD) ---
-if [ ! -f /app/dataset/data/.download-complete ]; then
-    echo "Dataset not found, downloading..."
-    python /app/dataset/dataset_tool.py download
-    touch /app/dataset/data/.download-complete
-else
-    echo "Dataset already present, skipping"
+# Готовый корпус чанков уже лежит в образе: /app/dataset/result_chunks.csv.
+# Исходный RusLawOD нужен только для пересборки корпуса, поэтому тяжёлая
+# загрузка выключена по умолчанию: `docker compose up` не требует сети
+# сверх установки зависимостей при сборке.
+if [ "${DOWNLOAD_DATASET:-false}" = "true" ]; then
+    if [ -f /app/dataset/data/.download-complete ]; then
+        echo "Dataset already present, skipping"
+    else
+        echo "Downloading RusLawOD..."
+        python /app/dataset/dataset_tool.py download
+        touch /app/dataset/data/.download-complete
+    fi
 fi
 
-# --- Embedding model ---
-MODEL_DIR="${SENTENCE_TRANSFORMERS_HOME:-/app/data/cache/embeddings}"
-mkdir -p "$MODEL_DIR"
-
-if [ ! -f "$MODEL_DIR/.model-complete" ]; then
-    echo "Embedding model not found, downloading..."
-    EMBEDDING_ALLOW_DOWNLOAD=true python -c "from rag.embeddings.st import SentenceTransformerEmbeddings as E; E(model_name='intfloat/multilingual-e5-small').encode_queries(['warmup'])"
-    touch "$MODEL_DIR/.model-complete"
-else
-    echo "Embedding model already present, skipping"
-fi
-
+echo "Starting: $*"
 exec "$@"

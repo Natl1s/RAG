@@ -12,7 +12,11 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend ./backend
 COPY rag ./rag
+COPY script ./script
+COPY agents ./agents
 
+# Готовый корпус чанков: из него строится RAG-индекс на старте.
+COPY dataset/result_chunks.csv ./dataset/result_chunks.csv
 COPY dataset/dataset_tool.py ./dataset/dataset_tool.py
 RUN sed -i 's/\r$//' /app/backend/docker-entrypoint.sh && chmod +x /app/backend/docker-entrypoint.sh
 ENTRYPOINT ["/app/backend/docker-entrypoint.sh"]
