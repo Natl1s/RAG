@@ -6,35 +6,11 @@
 
 ## Быстрый старт
 
-Нужен Docker Compose. Перед запуском заполните `.env`: `POSTGRES_PASSWORD`
-и настройки чат-модели `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`.
-
-Если БД уже заполнена, из корня репозитория достаточно одной команды:
+Нужен только Docker. Из корня репозитория:
 
 ```bash
-docker compose up -d --build --wait
+docker compose up --build
 ```
-
-Для загрузки CSV в существующую пустую таблицу `chunks` используйте цепочку:
-
-```bash
-docker compose up -d --build --wait && \
-docker compose run --rm --no-deps backend \
-    python -m database.import_csv --csv /app/dataset/result_chunks.csv && \
-docker compose restart backend
-```
-
-Последний шаг перезапускает backend после импорта, чтобы RAG построил BM25
-по загруженным данным: при первом старте таблица ещё пустая. Дождитесь
-`"status":"ok"` в проверке готовности ниже; `--wait` сам по себе не
-подтверждает готовность RAG, поскольку healthcheck проверяет HTTP-ответ.
-
-Если таблицы ещё нет, перед импортом создайте её командой
-`docker compose run --rm --no-deps backend python -m database.create_tables`
-при запущенном PostgreSQL с установленным расширением `vector`.
-Повторный импорт в заполненную таблицу отменяется с ошибкой — для обычного
-перезапуска используйте первую команду без импорта. Данные хранятся в томе
-`postgres_data`; `docker compose down -v` удаляет этот том.
 
 - чат — http://localhost:8080
 - API — http://localhost:8000/api/health
@@ -171,9 +147,8 @@ docker compose logs -f backend   # логи RAG и агента
 docker compose down              # остановить
 ```
 
-Логи приложения отключены. Healthcheck backend в Compose опрашивает
-`/api/health` каждые 10 секунд; готовность RAG проверяйте по полю `status`
-в JSON-ответе этого эндпоинта.
+Логи приложения отключены, отдельного healthcheck в Compose нет: Docker не
+опрашивает `/api/health` каждые 10 секунд.
 
 ## Стек
 

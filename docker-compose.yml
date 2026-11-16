@@ -1,18 +1,11 @@
 services:
   backend:
-    volumes:
-      - psb-dataset:/app/dataset/data
-      - psb-models:/app/data/cache/embeddings
-      # Локальные эмбеддинги читаются с хоста, а не копируются в образ.
-      - ./models:/app/models:ro
     build:
       context: .
       dockerfile: backend/Dockerfile
     container_name: psb-legal-backend
     restart: unless-stopped
     environment:
-      VECTOR_STORE: ${VECTOR_STORE:-pgvector}
-      DATABASE_URL: postgresql+psycopg://rag:${POSTGRES_PASSWORD}@postgres:5432/legal_assistant
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
@@ -20,17 +13,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       GEN_MODEL: ${GEN_MODEL:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
+    volumes:
+      # Локальные эмбеддинги читаются с хоста, а не копируются в образ.
+      - ./models:/app/models:ro
     ports:
       - "8000:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 1200s
 
   frontend:
     build:
@@ -41,30 +28,4 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      backend:
-        condition: service_healthy
-
-  postgres:
-    image: pgvector/pgvector:pg17
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: legal_assistant
-      POSTGRES_USER: rag
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag -d legal_assistant"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-
-volumes:
-  psb-dataset:
-  psb-models:
-  postgres_data: #пока сделаю, потом снесём если че
+      - backend
