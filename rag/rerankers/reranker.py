@@ -1,5 +1,4 @@
 from __future__ import annotations
-from script.embeddings import rerank
 from rag.index.contracts import RetrievedChunk
 import numpy as np
 from pathlib import Path
@@ -26,6 +25,7 @@ class ExternalReranker:
         self.config = config 
 
     def rerank(self, query, top_retrievals: list[str]) -> list[int]:
+        from script.embeddings import rerank
         return rerank(self.config.client, query, top_retrievals, self.config.n_reranks)
 
 class QwenReranker:

@@ -1,25 +1,23 @@
 #!/bin/sh
 set -e
 
-# --- Dataset (RusLawOD) ---
-if [ ! -f /app/dataset/data/.download-complete ]; then
-    echo "Dataset not found, downloading..."
-    python /app/dataset/dataset_tool.py download
-    touch /app/dataset/data/.download-complete
-else
-    echo "Dataset already present, skipping"
-fi
+MODEL_DIR="/app/data/cache/embeddings/multilingual-e5-small"
 
-# --- Embedding model ---
-MODEL_DIR="${SENTENCE_TRANSFORMERS_HOME:-/app/data/cache/embeddings}"
-mkdir -p "$MODEL_DIR"
-
-if [ ! -f "$MODEL_DIR/.model-complete" ]; then
+if [ ! -f "$MODEL_DIR/config.json" ]; then
     echo "Embedding model not found, downloading..."
-    EMBEDDING_ALLOW_DOWNLOAD=true python -c "from rag.embeddings.st import SentenceTransformerEmbeddings as E; E(model_name='intfloat/multilingual-e5-small').encode_queries(['warmup'])"
-    touch "$MODEL_DIR/.model-complete"
+
+    mkdir -p "$MODEL_DIR"
+
+    python -c "
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('intfloat/multilingual-e5-small')
+model.save('$MODEL_DIR')
+"
+
+    echo "Embedding model downloaded"
 else
-    echo "Embedding model already present, skipping"
+    echo "Embedding model already exists"
 fi
 
 exec "$@"

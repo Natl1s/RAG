@@ -8,7 +8,7 @@ class RAGConfig:
     chunk_overlap: int = 20
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
-    embedding_model: str = "models/multilingual-e5-small"
+    embedding_model: str = "/app/data/cache/embeddings/multilingual-e5-small" #"intfloat/multilingual-e5-small"
     embedding_type: str = "local"  # "local" or "remote"
     batch_size: int = 32
     client: object = None  # httpx.Client for remote embeddings
@@ -35,6 +35,9 @@ class RAGConfig:
     reranker: object = None
     reranker_model: str = None #"models/Qwen3-Reranker-0.6B"
     n_reranks: int = 4
+
+    vector_store: str = "faiss" # "pgvector" ВЫБОР ИСПОЛЬЗОВАТЬ БД ИЛИ НЕТ. pgvector - использовать БД с предпосчитанными эмбеддингами
+
 
     # Инициализация эмбеддера по выбранному способу вычисления.
     def __post_init__(self):

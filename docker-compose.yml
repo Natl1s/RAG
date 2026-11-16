@@ -7,6 +7,11 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: psb-legal-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://rag:${POSTGRES_PASSWORD}@postgres:5432/legal_assistant
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     healthcheck:
@@ -27,6 +32,27 @@ services:
       backend:
         condition: service_healthy
 
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: legal_assistant
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d legal_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
 volumes:
   psb-dataset:
   psb-models:
+  postgres_data: #пока сделаю, потом снесём если че
