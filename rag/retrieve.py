@@ -9,6 +9,7 @@ from pathlib import Path
 from rag.config import RAGConfig
 from rag.index.bm25 import BM25Retriever
 from rag.index.contracts import RetrievedChunk
+from rag.index.faiss_dense import DenseRetriever, build_faiss_index
 from rag.index.hybrid import HybridRetriever
 # from rag.ingest.load_dataset import load_documents_from_slice
 from rag.ingest.schema import Chunk
@@ -31,13 +32,21 @@ def build_retrievers(
     retrievers["bm25"] = bm25
 
     if config.use_dense:
-        if config.vector_store == "pgvector":
-            from database.connection import SessionLocal
-            from rag.index.pgvector_dense import PgvectorRetriever
+        index, chunk_order = build_faiss_index(
+            chunk_list,
+            config.embedder.encode_passages,
+            min_chunk_chars=config.min_chunk_chars,
+        )
 
-            dense = PgvectorRetriever(embedder, SessionLocal)
-        else:
-            dense = _build_faiss_retriever(chunk_list, config, embedder)
+
+        embed_name = embedder.__class__.__name__
+        logger.info("Dense retriever: embedder=%s, dim=%s", embed_name, index.d)
+        dense = DenseRetriever(
+            index=index,
+            chunks=chunk_order,
+            embed_passage=config.embedder.encode_passages,
+            embed_query=config.embedder.encode_queries,
+        )
 
         retrievers["dense"] = dense
 
@@ -52,25 +61,3 @@ def build_retrievers(
         )
 
     return retrievers
-
-
-def _build_faiss_retriever(chunk_list, config, embedder):
-    from rag.index.faiss_dense import DenseRetriever, build_faiss_index
-
-    index, chunk_order = build_faiss_index(
-        chunk_list,
-        config.embedder.encode_passages,
-        min_chunk_chars=config.min_chunk_chars,
-    )
-
-
-    embed_name = embedder.__class__.__name__
-    logger.info("Dense retriever: embedder=%s, dim=%s", embed_name, index.d)
-    dense = DenseRetriever(
-        index=index,
-        chunks=chunk_order,
-        embed_passage=config.embedder.encode_passages,
-        embed_query=config.embedder.encode_queries,
-    )
-
-    return dense
