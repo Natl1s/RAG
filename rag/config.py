@@ -15,7 +15,7 @@ class RAGConfig:
 
     # Поиск RAG: способ поиска, количество результатов и переранжирование.
     retrieval_type: str = "hybrid" # "bm25", "dense", or "hybrid"
-    top_k: int = 10
+    top_k: int = 5
     use_reranker: bool = True
 
     # Индексация RAG: используемые индексы и режимы поиска.

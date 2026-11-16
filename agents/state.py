@@ -32,6 +32,7 @@ __all__ = [
 ]
 
 Coverage = Literal["full", "partial", "none"]
+EvidenceType = Literal["direct", "contradiction", "related", "none"]
 Verdict = Literal["pass", "revise_answer", "re_retrieve", "refuse"]
 FailureType = Literal[
     "none",
@@ -75,7 +76,11 @@ class SubQuery(BaseModel):
     kind: str = "fact"
     required: bool = True
     coverage: Coverage | None = None
+    evidence_type: EvidenceType | None = None
     missing_aspects: list[str] = Field(default_factory=list)
+    missing_required_aspects: list[str] = Field(default_factory=list)
+    missing_optional_details: list[str] = Field(default_factory=list)
+    unsupported_user_assumptions: list[str] = Field(default_factory=list)
     query_variants: list[str] = Field(default_factory=list)
     attempts: int = 0
 
@@ -120,7 +125,11 @@ class SubqueryGrade(BaseModel):
 
     subquery_id: int = 1
     coverage: Coverage = "none"
+    evidence_type: EvidenceType = "none"
     missing_aspects: list[str] = Field(default_factory=list)
+    missing_required_aspects: list[str] = Field(default_factory=list)
+    missing_optional_details: list[str] = Field(default_factory=list)
+    unsupported_user_assumptions: list[str] = Field(default_factory=list)
     reason: str = ""
 
 
@@ -129,7 +138,11 @@ class RetrievalGradeResult(BaseModel):
 
     subqueries: list[SubqueryGrade] = Field(default_factory=list)
     overall: Coverage = "none"
+    evidence_type: EvidenceType = "none"
     missing_aspects: list[str] = Field(default_factory=list)
+    missing_required_aspects: list[str] = Field(default_factory=list)
+    missing_optional_details: list[str] = Field(default_factory=list)
+    unsupported_user_assumptions: list[str] = Field(default_factory=list)
 
 
 class VerificationResult(BaseModel):
@@ -140,6 +153,10 @@ class VerificationResult(BaseModel):
     answers_question: bool = True
     citation_ok: bool = True
     premise_ok: bool = True
+    core_answer_supported: bool = True
+    core_answer_relevant: bool = True
+    premise_corrected: bool = True
+    optional_details_missing: list[str] = Field(default_factory=list)
     failure_type: FailureType = "none"
     missing_evidence: list[str] = Field(default_factory=list)
     fix_hint: str = ""
@@ -172,7 +189,11 @@ class AgentState(TypedDict, total=False):
     subqueries: list[SubQuery]
     contexts: list[ContextChunk]
     coverage: Coverage
+    evidence_type: EvidenceType
     missing_aspects: list[str]
+    missing_required_aspects: list[str]
+    missing_optional_details: list[str]
+    unsupported_user_assumptions: list[str]
     retrieval_attempts: int
     answer_attempts: int
     total_steps: int

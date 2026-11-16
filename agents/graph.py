@@ -21,6 +21,7 @@ from agents.nodes import (
     make_verify_node,
     route_after_grade,
     route_after_understand,
+    route_after_verify,
 )
 from agents.state import AgentState
 from rag.rag_pipeline import RAG
@@ -33,7 +34,22 @@ def build_graph(
     settings: Settings,
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
-    """Собрать production-граф с retrieval expansion и controlled finalize."""
+    """Собрать production-граф с retrieval expansion и controlled finalize.
+
+    Текущая схема:
+
+        START
+          -> parse_dialog
+          -> understand
+             -> refuse   -> END
+             -> clarify  -> END
+             -> retrieve
+                -> grade
+                   -> rewrite  -> expand -> rewrite -> retrieve
+                   -> generate -> verify -> finalize -> END
+                   -> clarify  -> END
+                   -> finalize -> END
+    """
     graph = StateGraph(AgentState)
     graph.add_node("parse_dialog", make_parse_dialog_node())
     graph.add_node("understand", make_understand_node(settings))
@@ -72,7 +88,14 @@ def build_graph(
     graph.add_edge("expand", "rewrite")
     graph.add_edge("rewrite", "retrieve")
     graph.add_edge("generate", "verify")
-    graph.add_edge("verify", "finalize")
+    graph.add_conditional_edges(
+        "verify",
+        lambda state: route_after_verify(state, settings),
+        {
+            "generate": "generate",
+            "finalize": "finalize",
+        },
+    )
     graph.add_edge("clarify", END)
     graph.add_edge("finalize", END)
     graph.add_edge("refuse", END)
