@@ -22,6 +22,7 @@ COPY backend ./backend
 COPY rag ./rag
 COPY script ./script
 COPY agents ./agents
+COPY database ./database
 
 # Готовый корпус чанков: из него строится индекс на старте.
 COPY dataset/result_chunks.csv ./dataset/result_chunks.csv
@@ -29,5 +30,7 @@ COPY dataset/result_chunks.csv ./dataset/result_chunks.csv
 # Модель с хоста не копируется через build context (это 2 ГБ): compose
 # монтирует ./models в /app/models, а запасная копия уже лежит в /opt/models.
 WORKDIR /app/backend
+
 EXPOSE 8000
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

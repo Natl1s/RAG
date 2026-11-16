@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 # from huggingface_hub import snapshot_download
-from script.embeddings import embeddings
 
 # from rag.embeddings.config import get_default_model
 
@@ -104,20 +103,24 @@ class SentenceTransformerEmbeddings:
         prefixed = [f"query: {t}" for t in texts]
         return self._encode(prefixed)
 
-
 class ExternalEmbeddings:
     def __init__(self, client):
         self.model_name = "external-embeddings"
         self.client = client
 
-    def encode_passages(self, texts) -> np.ndarray:
-        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
+        from script.embeddings import embeddings
+        self.embeddings = embeddings  # Без скобок!
 
-    def encode_queries(self, texts) -> np.ndarray:
-        return np.asarray(embeddings(self.client, texts), dtype=np.float32)
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        vectors = self.embeddings(self.client, texts)
+        return np.asarray(vectors, dtype=np.float32)
 
+    def encode_passages(self, texts: list[str]) -> np.ndarray:
+        return self._encode(texts)
 
-
+    def encode_queries(self, texts: list[str]) -> np.ndarray:
+        return self._encode(texts)
+    
 def _get_device() -> str:
     """
     Возвращает устройство для инференса sentence-transformers (CPU по умолчанию).
