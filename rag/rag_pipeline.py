@@ -26,7 +26,17 @@ class RAG:
         """Подготовка RAG к поиску."""
 
         if self.config.vector_store == "pgvector":
-            chunks = self.repository.get_chunks()
+            from database.connection import SessionLocal
+            from database.repository import ChunkRepository
+            from rag.ingest.schema import Chunk
+
+            with SessionLocal() as session:
+                chunks = [
+                    Chunk(doc_id=c.doc_id, chunk_id=str(c.id), text=c.text, metadata=c.metadata_)
+                    for c in ChunkRepository(session).get_chunks(include_embeddings=False)
+                ]
+            if not chunks:
+                raise ValueError("Таблица chunks пуста: сначала загрузите чанки в БД")
 
         elif isinstance(documents, pd.DataFrame):
             chunks = self.chunker.read_csv(documents)
@@ -62,7 +72,7 @@ class RAG:
             results = self.retrievers[
                 self.config.retrieval_type
             ].retrieve(query, k=self.config.top_k)
-            if self.config.use_reranker==True:
+            if results and self.config.use_reranker==True:
                 results = self.do_rerank(query, results)
             # print(results[0])
             return results
@@ -77,7 +87,8 @@ class RAG:
     def do_rerank(
         self, query: str, top_result: list[RetrievedChunk]
     ) -> list[RetrievedChunk]:
-        print(top_result[0])
+        if not top_result:
+            return []
         texts = [self.format_chunk(chunk) for chunk in top_result]
 
         # Реранкер возвращает (индекс, score)

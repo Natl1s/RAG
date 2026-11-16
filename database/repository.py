@@ -1,4 +1,6 @@
-from sqlalchemy.orm import Session
+from collections.abc import Iterable
+
+from sqlalchemy.orm import Session, defer
 from database.create_tables import ChunkModel
 from sqlalchemy import select, delete
 
@@ -7,29 +9,31 @@ class ChunkRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def save_chunk(
-        self,
-        doc_id: str,
-        text: str,
-        metadata: dict,
-        embedding: list[float],
-    ) -> ChunkModel:
+    def save_chunks(self, chunks: Iterable[ChunkModel]) -> list[ChunkModel]:
+        """Сохранить батч целиком и вернуть объекты с назначенными ID.
 
-        chunk = ChunkModel(
-            doc_id=doc_id,
-            text=text,
-            metadata_=metadata,
-            embedding=embedding,
-        )
+        Метод управляет транзакцией переданной сессии, как и delete_chunk:
+        фиксирует все её изменения, при ошибке откатывает транзакцию.
+        Для независимых операций следует использовать отдельную сессию.
+        Пустой батч не затрагивает текущую транзакцию.
+        """
+        chunks = list(chunks)
+        if not chunks:
+            return chunks
 
-        self.session.add(chunk)
-        self.session.commit()
-        self.session.refresh(chunk)
+        try:
+            self.session.add_all(chunks)
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
 
-        return chunk
+        return chunks
 
-    def get_chunks(self) -> list[ChunkModel]:
+    def get_chunks(self, *, include_embeddings: bool = True) -> list[ChunkModel]:
         statement = select(ChunkModel)
+        if not include_embeddings:
+            statement = statement.options(defer(ChunkModel.embedding))
         result = self.session.scalars(statement)
         return result.all()
 
@@ -39,16 +43,28 @@ class ChunkRepository:
         top_k: int = 5,
     ) -> list[ChunkModel]:
 
+        if top_k <= 0:
+            return []
+        distance = ChunkModel.embedding.cosine_distance(query_embedding)
+        statement = select(ChunkModel).order_by(distance, ChunkModel.id).limit(top_k)
+        return self.session.scalars(statement).all()
+
+    def vector_search_with_scores(
+        self, query_embedding: list[float], top_k: int = 5,
+    ) -> list[tuple[ChunkModel, float]]:
+        """Чанки и cosine similarity (чем больше, тем релевантнее)."""
+        if top_k <= 0:
+            return []
         distance = ChunkModel.embedding.cosine_distance(
             query_embedding
         )
         statement = (
-            select(ChunkModel)
-            .order_by(distance)
+            select(ChunkModel, (1 - distance).label("score"))
+            .options(defer(ChunkModel.embedding))
+            .order_by(distance, ChunkModel.id)
             .limit(top_k)
         )
-        result = self.session.scalars(statement)
-        return result.all()
+        return [(chunk, float(score)) for chunk, score in self.session.execute(statement)]
 
 
     def delete_chunk(self, chunk_id: int) -> bool:

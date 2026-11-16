@@ -125,7 +125,10 @@ def warm_up() -> None:
                 use_reranker=False,
             )
         )
-        rag.build(pd.read_csv(DOCS_PATH))
+        if rag.config.vector_store == "pgvector":
+            rag.build()
+        else:
+            rag.build(pd.read_csv(DOCS_PATH))
         AGENT = AgentService(rag)
         _WARMUP_ERROR = None
 

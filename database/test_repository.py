@@ -1,5 +1,6 @@
 from database.connection import SessionLocal
 from database.repository import ChunkRepository
+from database.create_tables import ChunkModel
 
 
 def main():
@@ -7,12 +8,13 @@ def main():
         repository = ChunkRepository(session)
 
         # 1. Сохранение
-        chunk = repository.save_chunk(
+        chunk = ChunkModel(
             doc_id="test_document",
             text="Испытательный срок для главного бухгалтера",
-            metadata={"article": "70"},
+            metadata_={"article": "70"},
             embedding=[0.1] * 384,
         )
+        repository.save_chunks([chunk])
 
         chunk_id = chunk.id
         print("Сохранён чанк:", chunk_id)

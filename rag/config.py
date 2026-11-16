@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from rag.embeddings.embedders import SentenceTransformerEmbeddings, ExternalEmbeddings
 from rag.rerankers.reranker import Reranker, ExternalReranker, QwenReranker
 @dataclass
@@ -8,7 +9,7 @@ class RAGConfig:
     chunk_overlap: int = 20
 
     # Эмбеддер: модель, способ вычисления эмбеддингов и клиент удалённого API.
-    embedding_model: str = "/app/data/cache/embeddings/multilingual-e5-small" #"intfloat/multilingual-e5-small"
+    embedding_model: str = "/opt/models/multilingual-e5-small" #"intfloat/multilingual-e5-small"
     embedding_type: str = "local"  # "local" or "remote"
     batch_size: int = 32
     client: object = None  # httpx.Client for remote embeddings
@@ -36,11 +37,13 @@ class RAGConfig:
     reranker_model: str = None #"models/Qwen3-Reranker-0.6B"
     n_reranks: int = 4
 
-    vector_store: str = "faiss" # "pgvector" ВЫБОР ИСПОЛЬЗОВАТЬ БД ИЛИ НЕТ. pgvector - использовать БД с предпосчитанными эмбеддингами
+    vector_store: str = field(default_factory=lambda: os.getenv("VECTOR_STORE", "faiss"))
 
 
     # Инициализация эмбеддера по выбранному способу вычисления.
     def __post_init__(self):
+        if self.vector_store not in {"faiss", "pgvector"}:
+            raise ValueError(f"Unknown vector store: {self.vector_store}")
         if self.embedding_type == "local":
             self.embedder = SentenceTransformerEmbeddings(
                 model_name=self.embedding_model,
