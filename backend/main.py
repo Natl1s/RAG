@@ -335,7 +335,7 @@ async def _stream(
         try:
             if AGENT is None:
                 raise RuntimeError("Агент не инициализирован")
-            result = await AGENT.aanswer(cid, render_dialog(trim(conversation.turns)))
+            result = await AGENT.aanswer(render_dialog(trim(conversation.turns)))
             answer = (result.answer or "").strip() or "Не удалось сформировать ответ."
         except Exception as exc:  # noqa: BLE001 — показываем причину во фронте
             yield sse({"type": "error", "message": str(exc)})
