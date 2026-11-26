@@ -52,6 +52,14 @@ class BuildSourceIndexTest(unittest.TestCase):
             self.assertIn(key, index)
             self.assertEqual(index[key].label, "152-ФЗ, ст. 9")
 
+    def test_normalizes_punctuation_in_keys(self) -> None:
+        chunk = make_chunk("doc-1.", "chunk-1)", "Документ")
+
+        index = build_source_index([chunk])
+
+        self.assertEqual(index["doc-1"].label, "Документ")
+        self.assertEqual(index["chunk-1"].label, "Документ")
+
 
 class HumanizeCitationsTest(unittest.TestCase):
     def test_replaces_doc_id_with_label(self) -> None:

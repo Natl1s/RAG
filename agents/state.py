@@ -27,15 +27,7 @@ __all__ = [
 
 Coverage = Literal["full", "partial", "none"]
 EvidenceType = Literal["direct", "contradiction", "related", "none"]
-Verdict = Literal["pass", "revise_answer", "re_retrieve", "refuse"]
-FailureType = Literal[
-    "none",
-    "retrieval",
-    "generation",
-    "citation",
-    "premise",
-    "policy",
-]
+Verdict = Literal["pass", "refuse"]
 
 
 class DialogTurn(BaseModel):
@@ -135,16 +127,8 @@ class VerificationResult(BaseModel):
 
     verdict: Verdict = "pass"
     grounded: bool = True
-    answers_question: bool = True
     citation_ok: bool = True
-    premise_ok: bool = True
     core_answer_supported: bool = True
-    core_answer_relevant: bool = True
-    premise_corrected: bool = True
-    optional_details_missing: list[str] = Field(default_factory=list)
-    failure_type: FailureType = "none"
-    missing_evidence: list[str] = Field(default_factory=list)
-    fix_hint: str = ""
     reason: str = ""
 
 

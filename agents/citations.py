@@ -69,7 +69,7 @@ def build_source_index(
             values.extend(chunk_ids)
 
         for value in values:
-            key = str(value).strip() if value is not None else ""
+            key = _clean_id(str(value)) if value is not None else ""
             if key and key not in index:
                 index[key] = ref
     return index

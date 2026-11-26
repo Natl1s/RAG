@@ -121,17 +121,19 @@ def grade_full_response() -> str:
     )
 
 
-def verify_response(verdict: str = "pass") -> str:
+def verify_response(
+    verdict: str = "pass",
+    *,
+    core_supported: bool | None = None,
+) -> str:
+    if core_supported is None:
+        core_supported = verdict == "pass"
     return json.dumps(
         {
             "verdict": verdict,
             "grounded": verdict == "pass",
-            "answers_question": True,
             "citation_ok": True,
-            "premise_ok": True,
-            "failure_type": "none" if verdict == "pass" else "generation",
-            "missing_evidence": [],
-            "fix_hint": "",
+            "core_answer_supported": core_supported,
             "reason": "test",
         },
         ensure_ascii=False,
@@ -149,6 +151,24 @@ class InstructionHierarchyPromptTest(unittest.TestCase):
         ):
             self.assertIn("ИЕРАРХИЯ ИНСТРУКЦИЙ", prompt)
             self.assertIn("НЕДОВЕРЕННЫЕ ДАННЫЕ", prompt)
+
+    def test_verify_prompt_uses_minimal_schema(self) -> None:
+        for field in (
+            "verdict",
+            "grounded",
+            "citation_ok",
+            "core_answer_supported",
+            "reason",
+        ):
+            self.assertIn(f'"{field}"', VERIFY_SYSTEM_PROMPT)
+        for dead in (
+            "revise_answer",
+            "re_retrieve",
+            "failure_type",
+            "missing_evidence",
+            "fix_hint",
+        ):
+            self.assertNotIn(dead, VERIFY_SYSTEM_PROMPT)
 
     def test_generate_prompt_wraps_question_and_context(self) -> None:
         prompt = generate_user_prompt(
@@ -331,7 +351,7 @@ class VerifyTrustChainTest(unittest.TestCase):
         self.assertIn("INJECTED_OK", result)
         self.assertNotIn("Источники:", result)
 
-    def test_fabricated_citation_survives_finalization(self) -> None:
+    def test_fabricated_citation_is_refused(self) -> None:
         result = self._run(
             [
                 understand_response(),
@@ -342,7 +362,9 @@ class VerifyTrustChainTest(unittest.TestCase):
             [make_retrieved_chunk("Возврат помещения оформляется актом.")],
         )
 
-        self.assertIn("[doc_id: fake-999]", result)
+        self.assertIn("В предоставленной базе знаний", result)
+        self.assertNotIn("[doc_id: fake-999]", result)
+        self.assertNotIn("INJECTED_OK", result)
 
     def test_fake_sources_block_suppresses_real_sources(self) -> None:
         fake_answer = (
@@ -367,20 +389,21 @@ class VerifyTrustChainTest(unittest.TestCase):
         self.assertEqual(result.count("Источники:"), 1)
         self.assertNotIn("Настоящий договор аренды", result)
 
-    def test_marker_leaks_even_when_verify_never_passes(self) -> None:
+    def test_marker_does_not_leak_when_verify_refuses(self) -> None:
         result = self._run(
             [
                 understand_response(),
                 grade_full_response(),
                 MALICIOUS_ANSWER,
-                verify_response("revise_answer"),
+                verify_response("refuse", core_supported=True),
                 MALICIOUS_ANSWER,
-                verify_response("revise_answer"),
+                verify_response("refuse", core_supported=True),
             ],
             [make_retrieved_chunk("Возврат помещения оформляется актом.")],
         )
 
-        self.assertIn("INJECTED_OK", result)
+        self.assertIn("В предоставленной базе знаний", result)
+        self.assertNotIn("INJECTED_OK", result)
 
     def test_control_benign_answer_is_returned(self) -> None:
         result = self._run(

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from agents.config import Settings
 from agents.service import AgentService
+from agents.state import ClarificationRequest
 from rag.index.contracts import RetrievedChunk
 
 
@@ -45,9 +46,8 @@ def completion_responses() -> list[str]:
         ),
         "Ответ по документу [doc_id: doc-1]",
         (
-            '{"verdict":"pass","grounded":true,"answers_question":true,'
-            '"citation_ok":true,"premise_ok":true,"failure_type":"none",'
-            '"missing_evidence":[],"fix_hint":"","reason":"ok"}'
+            '{"verdict":"pass","grounded":true,"citation_ok":true,'
+            '"core_answer_supported":true,"reason":"ok"}'
         ),
     ]
 
@@ -118,6 +118,38 @@ class AgentServiceTest(unittest.TestCase):
             config={"recursion_limit": 30},
         )
         self.assertEqual(answer, "ok")
+
+    def test_answered_result_drops_unneeded_clarification(self) -> None:
+        with patch.object(
+            self.service._graph,
+            "invoke",
+            return_value={
+                "answer": "ok",
+                "status": "answered",
+                "clarification": ClarificationRequest(),
+            },
+        ):
+            result = asyncio.run(self.service.aanswer("налоги"))
+
+        self.assertIsNone(result.clarification)
+
+    def test_clarification_result_keeps_request(self) -> None:
+        clarification = ClarificationRequest(
+            needed=True,
+            question="Какой договор?",
+        )
+        with patch.object(
+            self.service._graph,
+            "invoke",
+            return_value={
+                "answer": clarification.question,
+                "status": "clarification",
+                "clarification": clarification,
+            },
+        ):
+            result = asyncio.run(self.service.aanswer("налоги"))
+
+        self.assertIs(result.clarification, clarification)
 
     def test_empty_question_raises(self) -> None:
         with self.assertRaises(ValueError):

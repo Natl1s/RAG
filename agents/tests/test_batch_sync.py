@@ -64,10 +64,8 @@ def make_verify() -> VerificationResult:
     return VerificationResult(
         verdict="pass",
         grounded=True,
-        answers_question=True,
         citation_ok=True,
-        premise_ok=True,
-        failure_type="none",
+        core_answer_supported=True,
         reason="ok",
     )
 

@@ -907,11 +907,15 @@ def _citations_valid(answer: str, contexts: list[ContextChunk]) -> bool:
         answer,
         flags=re.IGNORECASE,
     )
+    has_valid_citation = False
     for citation in citations:
         cleaned = citation.strip("`\"'«»[](){}.,;:")
-        if cleaned and cleaned not in known:
+        if not cleaned:
+            continue
+        if cleaned not in known:
             return False
-    return True
+        has_valid_citation = True
+    return has_valid_citation
 
 
 def fallback_verification(
@@ -922,39 +926,25 @@ def fallback_verification(
         return VerificationResult(
             verdict="refuse",
             grounded=False,
-            answers_question=False,
             citation_ok=False,
             core_answer_supported=False,
-            core_answer_relevant=False,
-            premise_corrected=False,
-            failure_type="policy",
             reason="Пустой ответ.",
         )
 
     if not _citations_valid(answer, contexts):
         return VerificationResult(
-            verdict="revise_answer",
-            grounded=True,
-            answers_question=True,
+            verdict="refuse",
+            grounded=False,
             citation_ok=False,
-            core_answer_supported=True,
-            core_answer_relevant=True,
-            premise_corrected=True,
-            failure_type="citation",
-            fix_hint="Исправь ссылки на источники по doc_id из контекста.",
-            reason="Ссылки не соответствуют контексту.",
+            core_answer_supported=False,
+            reason="Нет корректной ссылки на источник из контекста.",
         )
 
     return VerificationResult(
         verdict="pass",
         grounded=True,
-        answers_question=True,
         citation_ok=True,
-        premise_ok=True,
         core_answer_supported=True,
-        core_answer_relevant=True,
-        premise_corrected=True,
-        failure_type="none",
         reason="LLM недоступна, использована эвристика.",
     )
 
@@ -974,13 +964,8 @@ def verify_answer(
         return VerificationResult(
             verdict="refuse",
             grounded=False,
-            answers_question=False,
             citation_ok=False,
             core_answer_supported=False,
-            core_answer_relevant=False,
-            premise_corrected=False,
-            failure_type="retrieval",
-            missing_evidence=["В базе знаний нет подтверждённых фрагментов."],
             reason="Контекст пуст.",
         )
 
@@ -1006,39 +991,17 @@ def verify_answer(
 
     data = _extract_json_object(raw)
     if data:
-        for key in ("missing_evidence",):
-            if key in data:
-                data[key] = _as_text_list(data[key])
-        if "optional_details_missing" in data:
-            data["optional_details_missing"] = _as_text_list(
-                data["optional_details_missing"]
-            )
-        for field, fallback in (
-            ("core_answer_supported", "grounded"),
-            ("core_answer_relevant", "answers_question"),
-            ("premise_corrected", "premise_ok"),
+        if (
+            "core_answer_supported" not in data
+            and "grounded" in data
         ):
-            if field not in data and fallback in data:
-                data[field] = bool(data[fallback])
+            data["core_answer_supported"] = bool(data["grounded"])
         verdict = data.get("verdict")
         if isinstance(verdict, str):
-            verdict = verdict.strip().lower()
-            data["verdict"] = verdict
-        if data.get("verdict") not in {"pass", "revise_answer", "re_retrieve", "refuse"}:
-            data["verdict"] = "revise_answer"
-        failure_type = data.get("failure_type")
-        if isinstance(failure_type, str):
-            failure_type = failure_type.strip().lower()
-            data["failure_type"] = failure_type
-        if data.get("failure_type") not in {
-            "none",
-            "retrieval",
-            "generation",
-            "citation",
-            "premise",
-            "policy",
-        }:
-            data["failure_type"] = "generation"
+            data["verdict"] = verdict.strip().lower()
+        if data.get("verdict") not in {"pass", "refuse"}:
+            data["verdict"] = "refuse"
+            data["core_answer_supported"] = False
         try:
             parsed = VerificationResult.model_validate(data)
         except Exception as exc:
@@ -1054,20 +1017,11 @@ def verify_answer(
 
     if parsed.verdict == "pass" and not (
         parsed.grounded
-        and parsed.answers_question
         and parsed.citation_ok
-        and parsed.premise_ok
-        and parsed.core_answer_relevant
-        and parsed.premise_corrected
+        and parsed.core_answer_supported
     ):
-        if not parsed.core_answer_supported:
-            parsed = parsed.model_copy(update={"verdict": "refuse"})
-        elif parsed.failure_type == "retrieval":
-            parsed = parsed.model_copy(update={"verdict": "re_retrieve"})
-        else:
-            parsed = parsed.model_copy(update={"verdict": "revise_answer"})
-
-    if parsed.core_answer_supported and parsed.verdict == "refuse":
-        parsed = parsed.model_copy(update={"verdict": "revise_answer"})
+        parsed = parsed.model_copy(
+            update={"verdict": "refuse", "core_answer_supported": False}
+        )
 
     return parsed

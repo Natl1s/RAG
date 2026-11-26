@@ -7,10 +7,12 @@ from unittest.mock import Mock, patch
 
 from agents.config import Settings
 from agents.nodes import (
+    make_finalize_node,
     make_generate_node,
     make_retrieve_node,
     make_rewrite_node,
     make_understand_node,
+    make_verify_node,
     route_after_grade,
     route_after_verify,
 )
@@ -96,14 +98,16 @@ def make_grade(coverage: str) -> RetrievalGradeResult:
     )
 
 
-def make_verify(verdict: str) -> VerificationResult:
+def make_verify(
+    verdict: str,
+    *,
+    core_supported: bool = True,
+) -> VerificationResult:
     return VerificationResult(
         verdict=verdict,
         grounded=verdict == "pass",
-        answers_question=True,
         citation_ok=True,
-        premise_ok=True,
-        failure_type="none" if verdict == "pass" else "retrieval",
+        core_answer_supported=core_supported,
     )
 
 
@@ -244,6 +248,53 @@ class GenerateNodeTest(unittest.TestCase):
         generate.assert_not_called()
 
 
+class VerifyNodeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.settings = Settings(
+            llm_base_url="http://llm.local/v1",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+
+    def test_empty_draft_refuses_without_llm(self) -> None:
+        verify = Mock(side_effect=AssertionError("LLM must not be called"))
+        with patch("agents.nodes.verify_answer", new=verify):
+            result = make_verify_node(self.settings)(
+                {"query": "вопрос", "answer_draft": "", "contexts": []}
+            )
+
+        self.assertEqual(result["verification"].verdict, "refuse")
+        self.assertFalse(result["verification"].core_answer_supported)
+        self.assertNotIn("total_steps", result)
+        verify.assert_not_called()
+
+    def test_skipped_llm_call_does_not_increment_steps(self) -> None:
+        state = {
+            "query": "вопрос",
+            "answer_draft": "Ответ [doc_id: doc-1].",
+            "contexts": [ContextChunk(doc_id="doc-1", chunk_id="chunk-1")],
+            "total_steps": 3,
+            "used_tokens": 0,
+        }
+        builder = patch(
+            "agents.llm._build_llm",
+            side_effect=AssertionError("real LLM must not be called"),
+        )
+        builder.start()
+        self.addCleanup(builder.stop)
+
+        result = make_verify_node(
+            replace(
+                self.settings,
+                max_total_tokens_per_question=100,
+                max_total_tokens_soft=50,
+            )
+        )(state)
+
+        self.assertEqual(result["total_steps"], 3)
+        self.assertEqual(result["used_tokens"], 0)
+
+
 class RouteAfterVerifyTest(unittest.TestCase):
     def setUp(self) -> None:
         self.settings = Settings(
@@ -252,9 +303,12 @@ class RouteAfterVerifyTest(unittest.TestCase):
             llm_model="test-model",
         )
 
-    def test_retries_when_core_answer_unsupported(self) -> None:
+    def test_retries_when_refuse_is_unsupported(self) -> None:
         state = {
-            "verification": VerificationResult(core_answer_supported=False),
+            "verification": VerificationResult(
+                verdict="refuse",
+                core_answer_supported=False,
+            ),
             "contexts": [ContextChunk(doc_id="doc-1", chunk_id="chunk-1")],
             "answer_attempts": 1,
             "total_steps": 1,
@@ -262,9 +316,25 @@ class RouteAfterVerifyTest(unittest.TestCase):
 
         self.assertEqual(route_after_verify(state, self.settings), "generate")
 
-    def test_finalizes_when_core_answer_supported(self) -> None:
+    def test_pass_does_not_retry_even_without_core_support(self) -> None:
         state = {
-            "verification": VerificationResult(core_answer_supported=True),
+            "verification": VerificationResult(
+                verdict="pass",
+                core_answer_supported=False,
+            ),
+            "contexts": [ContextChunk(doc_id="doc-1", chunk_id="chunk-1")],
+            "answer_attempts": 1,
+            "total_steps": 1,
+        }
+
+        self.assertEqual(route_after_verify(state, self.settings), "finalize")
+
+    def test_refuse_with_supported_core_still_finalizes(self) -> None:
+        state = {
+            "verification": VerificationResult(
+                verdict="refuse",
+                core_answer_supported=True,
+            ),
             "contexts": [ContextChunk(doc_id="doc-1", chunk_id="chunk-1")],
             "answer_attempts": 1,
             "total_steps": 1,
@@ -275,13 +345,82 @@ class RouteAfterVerifyTest(unittest.TestCase):
     def test_finalizes_when_answer_attempts_exhausted(self) -> None:
         settings = replace(self.settings, max_answer_attempts=1)
         state = {
-            "verification": VerificationResult(core_answer_supported=False),
+            "verification": VerificationResult(
+                verdict="refuse",
+                core_answer_supported=False,
+            ),
             "contexts": [ContextChunk(doc_id="doc-1", chunk_id="chunk-1")],
             "answer_attempts": 1,
             "total_steps": 1,
         }
 
         self.assertEqual(route_after_verify(state, settings), "finalize")
+
+
+class FinalizeNodeTest(unittest.TestCase):
+    def _run(self, **overrides: object) -> dict[str, str]:
+        state: dict[str, object] = {
+            "query": "налоги",
+            "in_scope": True,
+            "coverage": "full",
+            "contexts": [
+                ContextChunk(
+                    doc_id="doc-1",
+                    chunk_id="chunk-1",
+                    text="Текст",
+                    metadata={"title": "Документ"},
+                    subquery_ids=[1],
+                )
+            ],
+            "answer_draft": "Ответ [doc_id: doc-1]",
+            "verification": make_verify("pass"),
+        }
+        state.update(overrides)
+        return make_finalize_node()(state)
+
+    def test_passed_answer_humanizes_citations_and_keeps_status(self) -> None:
+        result = self._run()
+
+        self.assertEqual(set(result), {"answer", "status"})
+        self.assertEqual(result["status"], "answered")
+        self.assertIn("[Документ]", result["answer"])
+        self.assertNotIn("doc_id:", result["answer"])
+
+    def test_partial_coverage_downgrades_to_partial(self) -> None:
+        result = self._run(coverage="partial")
+
+        self.assertEqual(result["status"], "partial")
+        self.assertIn("[Документ]", result["answer"])
+
+    def test_refuse_with_supported_core_is_refused(self) -> None:
+        result = self._run(verification=make_verify("refuse", core_supported=True))
+
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("нет документов, подтверждающих ответ", result["answer"])
+
+    def test_empty_draft_is_refused(self) -> None:
+        result = self._run(answer_draft="")
+
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("нет документов, подтверждающих ответ", result["answer"])
+
+    def test_out_of_scope_is_refused(self) -> None:
+        result = self._run(in_scope=False)
+
+        self.assertEqual(result["status"], "refused")
+        self.assertIn("выходит за тематику", result["answer"])
+
+    def test_unknown_doc_id_is_not_returned(self) -> None:
+        result = self._run(answer_draft="Ответ [doc_id: fake-999]")
+
+        self.assertEqual(result["status"], "refused")
+        self.assertNotIn("fake-999", result["answer"])
+
+    def test_unknown_source_prefix_is_not_returned(self) -> None:
+        result = self._run(answer_draft="Ответ [source: Подделка]")
+
+        self.assertEqual(result["status"], "refused")
+        self.assertNotIn("Подделка", result["answer"])
 
 
 class GraphFlowTest(unittest.TestCase):

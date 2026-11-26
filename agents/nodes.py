@@ -19,7 +19,7 @@ from agents.clarification import (
 from agents.citations import humanize_citations
 from agents.config import Settings
 from agents.context import merge_contexts, normalize_chunk
-from agents.dialog import parse_dialog, queries_similar
+from agents.dialog import parse_dialog
 from agents.llm import (
     clarification_answer,
     fallback_grade,
@@ -347,7 +347,6 @@ def make_rewrite_node(settings: Settings) -> Node:
 
     def rewrite(state: AgentState) -> dict[str, Any]:
         question = _question(state)
-        verification = state.get("verification")
         subqueries = [
             subquery.model_copy(deep=True)
             for subquery in _subqueries(state)
@@ -357,31 +356,6 @@ def make_rewrite_node(settings: Settings) -> Node:
             for subquery in subqueries
             if subquery.coverage == "none" or subquery.coverage is None
         }
-
-        if verification is not None and verification.missing_evidence:
-            next_id = max((subquery.id for subquery in subqueries), default=0) + 1
-            for evidence in verification.missing_evidence:
-                evidence = (evidence or "").strip()
-                if not evidence:
-                    continue
-                if len(subqueries) >= settings.max_subqueries:
-                    break
-                if any(
-                    queries_similar(evidence, subquery.text)
-                    for subquery in subqueries
-                ):
-                    continue
-                subqueries.append(
-                    SubQuery(
-                        id=next_id,
-                        text=evidence,
-                        part_ids=[],
-                        kind="fact",
-                        required=True,
-                    )
-                )
-                target_ids.add(next_id)
-                next_id += 1
 
         available = settings.max_total_llm_calls - state.get("total_steps", 0)
         rewrite_limit = min(available, settings.max_rewrite_subqueries_per_round)
@@ -399,8 +373,6 @@ def make_rewrite_node(settings: Settings) -> Node:
                 continue
 
             reason = "; ".join(subquery.missing_aspects)
-            if not reason and verification is not None:
-                reason = verification.fix_hint or verification.reason
             if not reason and subquery.coverage == "none":
                 reason = (
                     "Нет релевантных чанков с ответом на подзапрос. "
@@ -509,9 +481,8 @@ def make_verify_node(settings: Settings) -> Node:
                 "verification": VerificationResult(
                     verdict="refuse",
                     grounded=False,
-                    answers_question=False,
                     citation_ok=False,
-                    failure_type="policy",
+                    core_answer_supported=False,
                     reason="Пустой черновик ответа.",
                 )
             }
@@ -540,7 +511,7 @@ def make_verify_node(settings: Settings) -> Node:
                 usage_sink=usage,
                 budget_remaining=_budget_remaining(state, settings),
             )
-            step_increment = 1
+            step_increment = 1 if any(not item.skipped for item in usage) else 0
 
         return {
             "verification": result,
@@ -576,11 +547,7 @@ def make_finalize_node() -> Node:
         if not state.get("in_scope", True):
             answer = out_of_scope_answer()
             status = "refused"
-        elif (
-            verification is not None
-            and verification.verdict == "refuse"
-            and not verification.core_answer_supported
-        ):
+        elif verification is not None and verification.verdict == "refuse":
             answer = no_data_answer(question)
             status = "refused"
         elif not draft:
@@ -588,24 +555,19 @@ def make_finalize_node() -> Node:
             status = "refused"
         else:
             answer = draft
-            status = "answered"
-            if (
-                coverage == "partial"
-                or (
-                    verification is not None
-                    and (
-                        verification.verdict != "pass"
-                        or verification.optional_details_missing
-                    )
-                )
-            ):
-                status = "partial"
+            status = "partial" if coverage == "partial" else "answered"
 
         if status in {"answered", "partial"}:
             answer, _ = humanize_citations(
                 answer,
                 list(state.get("contexts") or []),
             )
+            if any(
+                marker in answer.lower()
+                for marker in ("doc_id:", "chunk_id:", "[source:")
+            ):
+                answer = no_data_answer(question)
+                status = "refused"
 
         logger.info(
             "Итог по вопросу: status=%s, LLM-вызовов=%s, токенов≈%s",
@@ -696,6 +658,7 @@ def route_after_verify(state: AgentState, settings: Settings) -> str:
     verification = state.get("verification")
     if (
         verification is not None
+        and verification.verdict == "refuse"
         and not verification.core_answer_supported
         and state.get("contexts")
         and state.get("answer_attempts", 0) < settings.max_answer_attempts

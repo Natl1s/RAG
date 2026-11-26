@@ -350,9 +350,8 @@ class GenerateAnswerTest(unittest.TestCase):
 class VerifyAnswerTest(unittest.TestCase):
     def test_parses_valid_verification(self) -> None:
         raw = (
-            '{"verdict":"pass","grounded":true,"answers_question":true,'
-            '"citation_ok":true,"premise_ok":true,"failure_type":"none",'
-            '"missing_evidence":[],"fix_hint":"","reason":"ok"}'
+            '{"verdict":"pass","grounded":true,"citation_ok":true,'
+            '"core_answer_supported":true,"reason":"ok"}'
         )
         with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
             result = verify_answer(
@@ -364,16 +363,15 @@ class VerifyAnswerTest(unittest.TestCase):
 
         self.assertEqual(result.verdict, "pass")
 
-    def test_unsupported_core_answer_becomes_refusal(self) -> None:
+    def test_pass_with_unsupported_core_becomes_refusal(self) -> None:
         raw = (
-            '{"verdict":"pass","grounded":false,"answers_question":true,'
-            '"citation_ok":true,"premise_ok":true,"failure_type":"generation",'
-            '"missing_evidence":[],"fix_hint":"убрать выдумку","reason":"не заземлён"}'
+            '{"verdict":"pass","grounded":true,"citation_ok":true,'
+            '"core_answer_supported":false,"reason":"не подтверждено"}'
         )
         with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
             result = verify_answer(
                 "вопрос",
-                "Ответ",
+                "Ответ [doc_id: doc-1]",
                 [make_context()],
                 settings=make_settings(),
             )
@@ -381,7 +379,23 @@ class VerifyAnswerTest(unittest.TestCase):
         self.assertEqual(result.verdict, "refuse")
         self.assertFalse(result.core_answer_supported)
 
-    def test_bad_citation_becomes_revision_on_fallback(self) -> None:
+    def test_unknown_verdict_becomes_refusal(self) -> None:
+        raw = (
+            '{"verdict":"maybe","grounded":true,"citation_ok":true,'
+            '"core_answer_supported":true,"reason":""}'
+        )
+        with patch("agents.llm._chat_completion", new=Mock(return_value=raw)):
+            result = verify_answer(
+                "вопрос",
+                "Ответ [doc_id: doc-1]",
+                [make_context()],
+                settings=make_settings(),
+            )
+
+        self.assertEqual(result.verdict, "refuse")
+        self.assertFalse(result.core_answer_supported)
+
+    def test_bad_citation_refuses_on_fallback(self) -> None:
         with patch("agents.llm._chat_completion", new=Mock(return_value="не json")):
             result = verify_answer(
                 "вопрос",
@@ -390,8 +404,20 @@ class VerifyAnswerTest(unittest.TestCase):
                 settings=make_settings(),
             )
 
-        self.assertEqual(result.verdict, "revise_answer")
-        self.assertEqual(result.failure_type, "citation")
+        self.assertEqual(result.verdict, "refuse")
+        self.assertFalse(result.core_answer_supported)
+
+    def test_no_citation_refuses_on_fallback(self) -> None:
+        with patch("agents.llm._chat_completion", new=Mock(return_value="")):
+            result = verify_answer(
+                "вопрос",
+                "Ответ без ссылки",
+                [make_context()],
+                settings=make_settings(),
+            )
+
+        self.assertEqual(result.verdict, "refuse")
+        self.assertFalse(result.core_answer_supported)
 
     def test_empty_context_refuses_without_llm(self) -> None:
         completion = Mock(return_value="")

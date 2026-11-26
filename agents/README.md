@@ -37,7 +37,7 @@ print(service.answer("Какие налоги платит ИП?"))
 ```text
 parse_dialog -> understand -> clarify
     -> retrieve -> grade -> clarify
-    -> generate -> verify -> finalize
+    -> generate -> verify -> {generate, finalize}
     -> rewrite -> retrieve
     -> refuse
 ```
@@ -52,12 +52,16 @@ parse_dialog -> understand -> clarify
 - `clarify` возвращает уточняющий вопрос пользователю, если запрос неполный
   или неоднозначный.
 - `rewrite` переформулирует только проблемные подзапросы.
-- `verify` проверяет заземлённость, ссылки и ответ на вопрос.
-- Если подтверждённых сведений нет, агент честно отказывается отвечать.
+- `verify` проверяет заземлённость, ссылки и основной ответ; при `refuse` без
+  подтверждённого ответа черновик генерируется заново, а доработанный черновик
+  всё равно отклоняется на `finalize`.
+- Если подтверждённых сведений нет или в ответе осталась неизвестная ссылка,
+  агент честно отказывается отвечать.
 
 `AgentResult.status` принимает значения `answered`, `partial`, `refused`,
-`clarification`. В случае `clarification` поле `AgentResult.clarification`
-содержит вопрос и список недостающих сведений.
+`clarification`. `partial` означает неполное покрытие при успешной проверке.
+Поле `AgentResult.clarification` заполняется только для `clarification` с
+`needed=true`.
 
 Лимиты задаются переменными окружения:
 

@@ -52,10 +52,18 @@ class AgentService:
             answer = "Не удалось сформировать ответ."
             status = "refused"
 
+        clarification = result.get("clarification")
+        if (
+            status != "clarification"
+            or clarification is None
+            or not clarification.needed
+        ):
+            clarification = None
+
         return AgentResult(
             answer=answer,
             status=status,
-            clarification=result.get("clarification"),
+            clarification=clarification,
         )
 
     def _answer_sync(self, question: str) -> AgentResult:

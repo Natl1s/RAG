@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.config import Settings
-from agents.llm import _chat_completion, generate_answer
+from agents.llm import _chat_completion, generate_answer, verify_answer
 from agents.state import ContextChunk
 from agents.tokens import (
     TokenUsage,
@@ -164,6 +164,21 @@ class ChatCompletionBudgetTest(unittest.TestCase):
         )
 
         self.assertIn("нет документов", result)
+        self.assertTrue(usage[0].skipped)
+
+    def test_verify_uses_heuristic_when_budget_skipped(self) -> None:
+        usage: list[TokenUsage] = []
+
+        result = verify_answer(
+            "вопрос",
+            "Ответ [doc_id: doc-1].",
+            [make_context()],
+            settings=make_settings(),
+            usage_sink=usage,
+            budget_remaining=1,
+        )
+
+        self.assertEqual(result.verdict, "pass")
         self.assertTrue(usage[0].skipped)
 
 
